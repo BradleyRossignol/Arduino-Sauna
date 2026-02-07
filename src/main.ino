@@ -34,6 +34,8 @@ DallasTemperature sensors(&oneWire);
 
 float temp1C = -127.0;
 float temp1F = -127.0;
+float temp2C = -127.0;
+float temp2F = -127.0;
 
 uint16_t getTempColor(float tempF) {
   if (tempF < 60.0)        return COLOR_VERYCOLD;
@@ -67,7 +69,7 @@ void setup() {
     gfx.fillScreen(0x0000);
     gfx.setTextSize(3);
     gfx.setCursor(60, 220);
-    gfx.print("DS18B20 sensor ready");
+    gfx.print("DS18B20 sensors ready");
     delay(1500);
     gfx.fillScreen(0x0000);
   } else {
@@ -85,6 +87,8 @@ void loop() {
     sensors.requestTemperatures();
     temp1C = sensors.getTempCByIndex(0);
     temp1F = sensors.getTempFByIndex(0);
+    temp2C = sensors.getTempCByIndex(1);
+    temp2F = sensors.getTempFByIndex(1);
 
     drawAllInfo();
   }
@@ -95,16 +99,16 @@ void loop() {
 void drawAllInfo() {
   gfx.fillScreen(0x0000);
 
-  int y = 30;           // Start Y
-  int labelX = 40;      // Labels column
-  int valueX = 420;     // Values column - far enough right
-  int lineHeight = 50;  // Spacing
+  int y = 25;           // Start a bit higher
+  int labelX = 35;      // Slightly left
+  int valueX = 420;     // Values stay right-aligned
+  int lineHeight = 42;  // Reduced spacing
 
   // ── Title ──────────────────────────────────────────────
   gfx.setTextSize(4);
   gfx.setTextColor(COLOR_TURQUOISE);
   centerText("Sauna Controller", 400, y);
-  y += 70;
+  y += 55;              // Reduced gap after title
 
   // ── WiFi Info ──────────────────────────────────────────
   gfx.setTextSize(3);
@@ -130,7 +134,7 @@ void drawAllInfo() {
   gfx.setTextColor(COLOR_VALUE);
   gfx.setCursor(valueX, y);
   gfx.print(getMacString());
-  y += lineHeight + 30;
+  y += lineHeight + 20; // Smaller gap before time
 
   // ── Time ───────────────────────────────────────────────
   gfx.setTextSize(3);
@@ -140,72 +144,116 @@ void drawAllInfo() {
   gfx.setTextColor(COLOR_VALUE);
   gfx.setCursor(valueX, y);
   gfx.print(getFormattedDateTime());
-  y += lineHeight + 40;
+  y += lineHeight + 30; // Gap before sensors
 
   // ── Sensor Data ────────────────────────────────────────
   gfx.setTextSize(4);
   gfx.setTextColor(COLOR_TURQUOISE);
   gfx.setCursor(labelX, y);
   gfx.print("Sensor Data");
-  y += lineHeight + 10;
+  y += lineHeight - 5;  // Tighter
 
-  // Temp Sensor #1 label
-  gfx.setTextSize(4);
+  // Temp Sensor #1
+  gfx.setTextSize(3);   // Smaller label for better fit
   gfx.setTextColor(COLOR_LABEL);
   gfx.setCursor(labelX, y);
   gfx.print("Temp Sensor #1:");
 
   if (temp1C == DEVICE_DISCONNECTED_C || temp1C == -127.0) {
     gfx.setTextColor(COLOR_WARNING);
-    gfx.setTextSize(4);
+    gfx.setTextSize(3);
     gfx.setCursor(valueX, y);
     gfx.print("Error");
   } else {
     uint16_t tempColor = getTempColor(temp1F);
-
     gfx.setTextColor(tempColor);
-    gfx.setTextSize(3);  // Smaller size for values to prevent overflow
+    gfx.setTextSize(3);
 
-    // Temperature value (C)
     char tempStr[10];
     snprintf(tempStr, sizeof(tempStr), "%.1f", temp1C);
     gfx.setCursor(valueX, y);
     gfx.print(tempStr);
 
-    // Get width of the C number
     int16_t x1, y1;
     uint16_t w, h;
     gfx.getTextBounds(tempStr, 0, 0, &x1, &y1, &w, &h);
 
-    // ° circle for C
-    int degCX = valueX + w + 10;
+    int degCX = valueX + w + 8;
     int degY = y + 4;
     gfx.fillCircle(degCX + 6, degY - 6, 6, tempColor);
     gfx.fillCircle(degCX + 6, degY - 6, 4, 0x0000);
 
-    // °C unit (now uses the dynamic color)
-    gfx.setCursor(degCX + 18, y);
+    gfx.setCursor(degCX + 16, y);
     gfx.print("C");
 
-    // Fahrenheit value (same line, with good spacing)
     char fStr[10];
     snprintf(fStr, sizeof(fStr), "%.1f", temp1F);
-    int fStartX = degCX + 18 + 45;  // generous spacing after °C
+    int fStartX = degCX + 16 + 40;  // Slightly tighter spacing
     gfx.setCursor(fStartX, y);
     gfx.print(fStr);
 
-    // Get width of F number
     gfx.getTextBounds(fStr, 0, 0, &x1, &y1, &w, &h);
 
-    // ° circle for F
-    int degFX = fStartX + w + 10;
+    int degFX = fStartX + w + 8;
     gfx.fillCircle(degFX + 6, degY - 6, 6, tempColor);
     gfx.fillCircle(degFX + 6, degY - 6, 4, 0x0000);
 
-    // °F unit (now uses the dynamic color)
-    gfx.setCursor(degFX + 18, y);
+    gfx.setCursor(degFX + 16, y);
     gfx.print("F");
   }
+
+  y += lineHeight - 5;  // Tighter spacing between sensors
+
+  // Temp Sensor #2
+  gfx.setTextSize(3);
+  gfx.setTextColor(COLOR_LABEL);
+  gfx.setCursor(labelX, y);
+  gfx.print("Temp Sensor #2:");
+
+  if (temp2C == DEVICE_DISCONNECTED_C || temp2C == -127.0) {
+    gfx.setTextColor(COLOR_WARNING);
+    gfx.setTextSize(3);
+    gfx.setCursor(valueX, y);
+    gfx.print("Error");
+  } else {
+    uint16_t tempColor = getTempColor(temp2F);
+    gfx.setTextColor(tempColor);
+    gfx.setTextSize(3);
+
+    char tempStr[10];
+    snprintf(tempStr, sizeof(tempStr), "%.1f", temp2C);
+    gfx.setCursor(valueX, y);
+    gfx.print(tempStr);
+
+    int16_t x1, y1;
+    uint16_t w, h;
+    gfx.getTextBounds(tempStr, 0, 0, &x1, &y1, &w, &h);
+
+    int degCX = valueX + w + 8;
+    int degY = y + 4;
+    gfx.fillCircle(degCX + 6, degY - 6, 6, tempColor);
+    gfx.fillCircle(degCX + 6, degY - 6, 4, 0x0000);
+
+    gfx.setCursor(degCX + 16, y);
+    gfx.print("C");
+
+    char fStr[10];
+    snprintf(fStr, sizeof(fStr), "%.1f", temp2F);
+    int fStartX = degCX + 16 + 40;
+    gfx.setCursor(fStartX, y);
+    gfx.print(fStr);
+
+    gfx.getTextBounds(fStr, 0, 0, &x1, &y1, &w, &h);
+
+    int degFX = fStartX + w + 8;
+    gfx.fillCircle(degFX + 6, degY - 6, 6, tempColor);
+    gfx.fillCircle(degFX + 6, degY - 6, 4, 0x0000);
+
+    gfx.setCursor(degFX + 16, y);
+    gfx.print("F");
+  }
+
+  // If you later add more elements, consider reducing lineHeight further to 38–40
 }
 
 void centerText(const char* text, int x, int y) {
