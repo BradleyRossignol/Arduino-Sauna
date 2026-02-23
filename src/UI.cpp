@@ -1,47 +1,143 @@
 // src/UI.cpp
 #include "UI.h"
+#include "UIConfig.h"          // ← New include for Phase 5
+#include <Arduino.h>
+#include <DallasTemperature.h>  // For DEVICE_DISCONNECTED_C (add if not indirect via main)
 
-// Color definitions (private to this file)
-#define COLOR_TURQUOISE 0x07FF
-#define COLOR_WARNING   0xF800
-#define COLOR_LABEL     0xC618
-#define COLOR_VALUE     COLOR_TURQUOISE
-
-#define COLOR_VERYCOLD  0x07FF
-#define COLOR_COLD      0xFFFF
-#define COLOR_WARM      0xFFE0
-#define COLOR_HOT       0x07E0
-#define COLOR_VERYHOT   0xF800
-
-// Private UI state (updated via setters from main.ino)
-static float _temp1C = -127.0f;
-static float _temp1F = -127.0f;
-static float _temp2C = -127.0f;
-static float _temp2F = -127.0f;
+// ────────────────────────────────────────────────
+// Private UI state
+// ────────────────────────────────────────────────
+static float _temp1C = DEVICE_DISCONNECTED_C;  // Better default
+static float _temp1F = DEVICE_DISCONNECTED_C;
+static float _temp2C = DEVICE_DISCONNECTED_C;
+static float _temp2F = DEVICE_DISCONNECTED_C;
 
 static String _wifiSSID = "";
 static String _wifiIP   = "";
 static String _wifiMAC  = "";
 static String _timeStr  = "Not synced";
 
-// Refresh control
 static unsigned long lastRefresh = 0;
-static const unsigned long REFRESH_INTERVAL = 5000;
 
-// Forward declaration for private helper function
-static void drawAllInfo();
+// ────────────────────────────────────────────────
+// Private helpers
+// ────────────────────────────────────────────────
 
-// Helper function: temperature-based color
 static uint16_t getTempColor(float tempF) {
-  if (tempF < 60.0f)        return COLOR_VERYCOLD;
-  else if (tempF < 100.0f)  return COLOR_COLD;
-  else if (tempF < 160.0f)  return COLOR_WARM;
-  else if (tempF < 200.0f)  return COLOR_HOT;
-  else                      return COLOR_VERYHOT;
+  if (tempF < TEMP_THRESHOLD_VERY_COLD) return COLOR_VERY_COLD;
+  else if (tempF < TEMP_THRESHOLD_COLD) return COLOR_COLD;
+  else if (tempF < TEMP_THRESHOLD_WARM) return COLOR_WARM;
+  else if (tempF < TEMP_THRESHOLD_HOT)  return COLOR_HOT;
+  else                                  return COLOR_VERY_HOT;
+}
+
+static void drawSensor(const char* label, float tempC, float tempF, int yPos) {
+  gfx.setTextSize(UI_NORMAL_SIZE);
+  gfx.setTextColor(COLOR_LABEL);
+  gfx.setCursor(UI_LABEL_X, yPos);
+  gfx.print(label);
+
+  if (tempC == DEVICE_DISCONNECTED_C) {  // More accurate check
+    gfx.setTextColor(COLOR_WARNING);
+    gfx.setCursor(UI_VALUE_X, yPos);
+    gfx.print("Disconnected");
+    return;
+  }
+
+  uint16_t col = getTempColor(tempF);
+  gfx.setTextColor(col);
+
+  char buf[10];
+  snprintf(buf, sizeof(buf), "%.1f", tempC);
+  gfx.setCursor(UI_VALUE_X, yPos);
+  gfx.print(buf);
+
+  // Degree C symbol
+  int16_t tbx, tby;
+  uint16_t tbw, tbh;
+  gfx.getTextBounds(buf, 0, 0, &tbx, &tby, &tbw, &tbh);
+  int degCX = UI_VALUE_X + tbw + 8;
+  int degY  = yPos + 4;
+  gfx.fillCircle(degCX + 6, degY - 6, 6, col);
+  gfx.fillCircle(degCX + 6, degY - 6, 4, 0x0000);
+  gfx.setCursor(degCX + 16, yPos);
+  gfx.print("C");
+
+  // Fahrenheit
+  snprintf(buf, sizeof(buf), "%.1f", tempF);
+  int fStartX = degCX + 16 + 40;
+  gfx.setCursor(fStartX, yPos);
+  gfx.print(buf);
+
+  gfx.getTextBounds(buf, 0, 0, &tbx, &tby, &tbw, &tbh);
+  int degFX = fStartX + tbw + 8;
+  gfx.fillCircle(degFX + 6, degY - 6, 6, col);
+  gfx.fillCircle(degFX + 6, degY - 6, 4, 0x0000);
+  gfx.setCursor(degFX + 16, yPos);
+  gfx.print("F");
+}
+
+static void drawAllInfo() {
+  gfx.fillScreen(0x0000);
+
+  int y = UI_TITLE_Y;
+
+  // Title
+  gfx.setTextSize(UI_TITLE_SIZE);
+  gfx.setTextColor(COLOR_TURQUOISE);
+  centerText("Sauna Controller", UI_CENTER_X, y);
+  y += 55;
+
+  // WiFi information
+  gfx.setTextSize(UI_NORMAL_SIZE);
+  gfx.setTextColor(COLOR_LABEL);
+  gfx.setCursor(UI_LABEL_X, y);
+  gfx.print("WiFi Network:");
+  gfx.setTextColor(COLOR_VALUE);
+  gfx.setCursor(UI_VALUE_X, y);
+  gfx.print(_wifiSSID);
+  y += UI_LINE_HEIGHT;
+
+  gfx.setTextColor(COLOR_LABEL);
+  gfx.setCursor(UI_LABEL_X, y);
+  gfx.print("IP Address:");
+  gfx.setTextColor(COLOR_VALUE);
+  gfx.setCursor(UI_VALUE_X, y);
+  gfx.print(_wifiIP);
+  y += UI_LINE_HEIGHT;
+
+  gfx.setTextColor(COLOR_LABEL);
+  gfx.setCursor(UI_LABEL_X, y);
+  gfx.print("MAC Address:");
+  gfx.setTextColor(COLOR_VALUE);
+  gfx.setCursor(UI_VALUE_X, y);
+  gfx.print(_wifiMAC);
+  y += UI_LINE_HEIGHT + 20;
+
+  // Time
+  gfx.setTextColor(COLOR_LABEL);
+  gfx.setCursor(UI_LABEL_X, y);
+  gfx.print("Time (PST):");
+  gfx.setTextColor(COLOR_VALUE);
+  gfx.setCursor(UI_VALUE_X, y);
+  gfx.print(_timeStr);
+  y += UI_LINE_HEIGHT + 30;
+
+  // Sensor Data header
+  gfx.setTextSize(UI_TITLE_SIZE);
+  gfx.setTextColor(COLOR_TURQUOISE);
+  gfx.setCursor(UI_LABEL_X, y);
+  gfx.print("Sensor Data");
+  y += UI_LINE_HEIGHT + UI_SENSOR_Y_GAP;
+
+  drawSensor("Temp Sensor #1:", _temp1C, _temp1F, y);
+  y += UI_LINE_HEIGHT + UI_SENSOR_Y_GAP;
+
+  drawSensor("Temp Sensor #2:", _temp2C, _temp2F, y);
 }
 
 // ────────────────────────────────────────────────
-// Public functions (declared in UI.h)
+// Public API (unchanged)
 // ────────────────────────────────────────────────
 
 void uiInit() {
@@ -49,20 +145,19 @@ void uiInit() {
   gfx.setRotation(1);
   gfx.fillScreen(0x0000);
   gfx.setTextColor(COLOR_TURQUOISE);
-  gfx.setTextSize(3);
+  gfx.setTextSize(UI_NORMAL_SIZE);
   gfx.setCursor(60, 100);
   gfx.print("Connecting to WiFi...");
 }
 
 void uiUpdate() {
   unsigned long now = millis();
-  if (now - lastRefresh >= REFRESH_INTERVAL) {
+  if (now - lastRefresh >= UI_REFRESH_MS) {
     lastRefresh = now;
     drawAllInfo();
   }
 }
 
-// Setters – called from main.ino when values change
 void uiSetTemp1(float c, float f) {
   _temp1C = c;
   _temp1F = f;
@@ -81,149 +176,6 @@ void uiSetWifiInfo(const String& ssid, const String& ip, const String& mac) {
 
 void uiSetTime(const String& timeStr) {
   _timeStr = timeStr;
-}
-
-// ────────────────────────────────────────────────
-// Private drawing helpers
-// ────────────────────────────────────────────────
-
-static void drawAllInfo() {
-  gfx.fillScreen(0x0000);
-
-  int y = 25;
-  int labelX = 35;
-  int valueX = 420;
-  int lineHeight = 42;
-
-  // Title
-  gfx.setTextSize(4);
-  gfx.setTextColor(COLOR_TURQUOISE);
-  centerText("Sauna Controller", 400, y);
-  y += 55;
-
-  // WiFi information
-  gfx.setTextSize(3);
-  gfx.setTextColor(COLOR_LABEL);
-  gfx.setCursor(labelX, y);
-  gfx.print("WiFi Network:");
-  gfx.setTextColor(COLOR_VALUE);
-  gfx.setCursor(valueX, y);
-  gfx.print(_wifiSSID);
-  y += lineHeight;
-
-  gfx.setTextColor(COLOR_LABEL);
-  gfx.setCursor(labelX, y);
-  gfx.print("IP Address:");
-  gfx.setTextColor(COLOR_VALUE);
-  gfx.setCursor(valueX, y);
-  gfx.print(_wifiIP);
-  y += lineHeight;
-
-  gfx.setTextColor(COLOR_LABEL);
-  gfx.setCursor(labelX, y);
-  gfx.print("MAC Address:");
-  gfx.setTextColor(COLOR_VALUE);
-  gfx.setCursor(valueX, y);
-  gfx.print(_wifiMAC);
-  y += lineHeight + 20;
-
-  // Time
-  gfx.setTextColor(COLOR_LABEL);
-  gfx.setCursor(labelX, y);
-  gfx.print("Time (PST):");
-  gfx.setTextColor(COLOR_VALUE);
-  gfx.setCursor(valueX, y);
-  gfx.print(_timeStr);
-  y += lineHeight + 30;
-
-  // Sensor Data header
-  gfx.setTextSize(4);
-  gfx.setTextColor(COLOR_TURQUOISE);
-  gfx.setCursor(labelX, y);
-  gfx.print("Sensor Data");
-  y += lineHeight - 5;
-
-  // Sensor #1
-  gfx.setTextSize(3);
-  gfx.setTextColor(COLOR_LABEL);
-  gfx.setCursor(labelX, y);
-  gfx.print("Temp Sensor #1:");
-
-  if (_temp1C == -127.0f) {
-    gfx.setTextColor(COLOR_WARNING);
-    gfx.setCursor(valueX, y);
-    gfx.print("Error");
-  } else {
-    uint16_t col = getTempColor(_temp1F);
-    gfx.setTextColor(col);
-
-    char buf[10];
-    snprintf(buf, sizeof(buf), "%.1f", _temp1C);
-    gfx.setCursor(valueX, y);
-    gfx.print(buf);
-
-    int16_t x1; uint16_t w, h; int16_t y1;
-    gfx.getTextBounds(buf, 0, 0, &x1, &y1, &w, &h);
-    int degCX = valueX + w + 8;
-    int degY = y + 4;
-    gfx.fillCircle(degCX + 6, degY - 6, 6, col);
-    gfx.fillCircle(degCX + 6, degY - 6, 4, 0x0000);
-    gfx.setCursor(degCX + 16, y);
-    gfx.print("C");
-
-    snprintf(buf, sizeof(buf), "%.1f", _temp1F);
-    int fStartX = degCX + 16 + 40;
-    gfx.setCursor(fStartX, y);
-    gfx.print(buf);
-
-    gfx.getTextBounds(buf, 0, 0, &x1, &y1, &w, &h);
-    int degFX = fStartX + w + 8;
-    gfx.fillCircle(degFX + 6, degY - 6, 6, col);
-    gfx.fillCircle(degFX + 6, degY - 6, 4, 0x0000);
-    gfx.setCursor(degFX + 16, y);
-    gfx.print("F");
-  }
-  y += lineHeight - 5;
-
-  // Sensor #2
-  gfx.setTextColor(COLOR_LABEL);
-  gfx.setCursor(labelX, y);
-  gfx.print("Temp Sensor #2:");
-
-  if (_temp2C == -127.0f) {
-    gfx.setTextColor(COLOR_WARNING);
-    gfx.setCursor(valueX, y);
-    gfx.print("Error");
-  } else {
-    uint16_t col = getTempColor(_temp2F);
-    gfx.setTextColor(col);
-
-    char buf[10];
-    snprintf(buf, sizeof(buf), "%.1f", _temp2C);
-    gfx.setCursor(valueX, y);
-    gfx.print(buf);
-
-    int16_t x1; uint16_t w, h; int16_t y1;
-    gfx.getTextBounds(buf, 0, 0, &x1, &y1, &w, &h);
-    int degCX = valueX + w + 8;
-    int degY = y + 4;
-    gfx.fillCircle(degCX + 6, degY - 6, 6, col);
-    gfx.fillCircle(degCX + 6, degY - 6, 4, 0x0000);
-    gfx.setCursor(degCX + 16, y);
-    gfx.print("C");
-
-    snprintf(buf, sizeof(buf), "%.1f", _temp2F);
-    int fStartX = degCX + 16 + 40;
-    gfx.setCursor(fStartX, y);
-    gfx.print(buf);
-
-    gfx.getTextBounds(buf, 0, 0, &x1, &y1, &w, &h);
-    int degFX = fStartX + w + 8;
-    gfx.fillCircle(degFX + 6, degY - 6, 6, col);
-    gfx.fillCircle(degFX + 6, degY - 6, 4, 0x0000);
-    gfx.setCursor(degFX + 16, y);
-    gfx.print("F");
-  }
 }
 
 void centerText(const char* text, int x, int y) {
