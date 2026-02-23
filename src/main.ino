@@ -21,6 +21,7 @@
 #include "UI.h"
 #include "Config.h" // For configuration constants
 
+
 GigaDisplay_GFX gfx;
 WiFiManager wifi;
 WiFiUDP ntpUDP;
