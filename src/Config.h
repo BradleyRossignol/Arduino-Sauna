@@ -17,6 +17,7 @@ constexpr const char* NTP_SERVER          = "pool.ntp.org";
 constexpr long        NTP_TIME_OFFSET_SEC = -28800L;   // PST = UTC-8 (change for your timezone)
 constexpr unsigned long NTP_UPDATE_INTERVAL_MS = 60000UL;  // Poll NTP every 60s
 constexpr const char* TIME_FORMAT_STR = "%04d-%02d-%02d %02d:%02d:%02d";  // For future easy changes
+constexpr const char* TIME_FORMAT_PATTERN = "%04d-%02d-%02d %02d:%02d:%02d";
 
 // ── Display / Colors ──────────────────────────────
 constexpr uint16_t ERROR_TEXT_COLOR_565 = 0xF800;      // Bright red in RGB565

@@ -1,3 +1,15 @@
+/*
+ * main.ino - Entry point for Giga R1 Sauna Controller with Giga Display
+ *
+ * Responsibilities:
+ *   - Initialize hardware (display, WiFi, NTP, DS18B20)
+ *   - Handle WiFi connection with on-screen error if failed
+ *   - Periodically read temperatures and update UI
+ *   - Delegate all drawing / touch to UI module
+ */
+
+
+
 #include <Arduino_GigaDisplay_GFX.h>
 #include "WiFiManager.h"
 #include <WiFi.h>
@@ -7,7 +19,7 @@
 #include <DallasTemperature.h>
 
 #include "UI.h"
-#include "config.h"  // ← New include
+#include "Config.h" // For configuration constants
 
 GigaDisplay_GFX gfx;
 WiFiManager wifi;
@@ -94,8 +106,7 @@ String getFormattedDateTime() {
   epochToDateTime(epoch, year, month, day, hour, minute, second);
 
   char buf[20];  // Enough for "YYYY-MM-DD HH:MM:SS\0"
-  snprintf(buf, sizeof(buf), "%04d-%02d-%02d %02d:%02d:%02d",
-           year, month, day, hour, minute, second);
+  snprintf(buf, sizeof(buf), TIME_FORMAT_PATTERN, year, month, day, hour, minute, second);
 
   return String(buf);
 }
