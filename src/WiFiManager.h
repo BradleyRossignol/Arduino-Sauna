@@ -1,14 +1,26 @@
-#ifndef WiFi_MANAGER_H
-#define WiFi_MANAGER_H
+#ifndef WIFIMANAGER_H
+#define WIFIMANAGER_H
 
 #include <WiFi.h>
+#include <NTPClient.h>
+#include <WiFiUdp.h>
 
 class WiFiManager {
 public:
-  WiFiManager();             // constructor
+    WiFiManager();
+    bool begin();                  // Returns true if connected after attempt
+    void maintain();               // Call in loop() for background reconnects
+    bool isConnected();
+    void syncNTP();
+    // Add your existing methods (e.g. getIP() if any)
 
-  bool begin();              // attempts connection, returns true if successful
-  bool isConnected() const;  // simple status check
+private:
+    unsigned long lastAttempt = 0;
+    bool wasConnected = false;
+    WiFiUDP ntpUDP;
+    NTPClient timeClient;
 };
+
+extern WiFiManager wifi;  // Assuming global instance as in your main.ino
 
 #endif

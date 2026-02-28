@@ -3,12 +3,10 @@
  *
  * Responsibilities:
  *   - Initialize hardware (display, WiFi, NTP, DS18B20)
- *   - Handle WiFi connection with on-screen error if failed
+ *   - Handle WiFi connection with graceful retry (Phase 6: no blocking halt on failure)
  *   - Periodically read temperatures and update UI
  *   - Delegate all drawing / touch to UI module
  */
-
-
 
 #include <Arduino_GigaDisplay_GFX.h>
 #include "WiFiManager.h"
@@ -20,7 +18,6 @@
 
 #include "UI.h"
 #include "Config.h" // For configuration constants
-
 
 GigaDisplay_GFX gfx;
 WiFiManager wifi;
@@ -38,10 +35,11 @@ float temp2F = INVALID_TEMPERATURE_F;
 void setup() {
   uiInit();  // Sets up display and shows "Connecting..."
 
-  bool success = wifi.begin();
+  wifi.begin();  // Attempt connection (timed/returns success)
 
   gfx.fillScreen(0x0000);
-  if (success && wifi.isConnected()) {
+
+  if (wifi.isConnected()) {
     gfx.setTextSize(STARTUP_TEXT_SIZE);
     gfx.setCursor(STARTUP_CURSOR_X, SYNC_TIME_Y);
     gfx.print("Syncing time...");
@@ -55,16 +53,24 @@ void setup() {
     gfx.setCursor(STARTUP_CURSOR_X, SENSORS_READY_Y);
     gfx.print("DS18B20 sensors ready");
     delay(STARTUP_MESSAGE_DELAY_MS);
-    gfx.fillScreen(0x0000);
   } else {
+    // Phase 6: Show warning but CONTINUE - no infinite loop
     gfx.setTextColor(ERROR_TEXT_COLOR_565);
-    centerText("WiFi Connection Failed", CENTER_TEXT_X, CENTER_TEXT_Y);
-    while (true) delay(1000);
+    centerText("WiFi Failed - Retrying...", CENTER_TEXT_X, CENTER_TEXT_Y);
+    delay(STARTUP_MESSAGE_DELAY_MS);  // Brief display of message
+
+    // Still initialize sensors so core functions work offline
+    sensors.begin();
   }
+
+  gfx.fillScreen(0x0000);  // Clear for main UI
 }
 
 void loop() {
-  timeClient.update();
+  // Phase 6: Maintain WiFi in background (checks status, retries if disconnected)
+  wifi.maintain();
+
+  timeClient.update();  // Safe even if not connected
 
   static unsigned long lastSensorRead = 0;
   if (millis() - lastSensorRead >= SENSOR_READ_INTERVAL_MS) {
@@ -82,8 +88,13 @@ void loop() {
     uiSetWifiInfo(WiFi.SSID(), WiFi.localIP().toString(), getMacString());
     uiSetTime(getFormattedDateTime());
 
+    // Optional Phase 6: Let UI reflect current WiFi state (add this function to UI.h/.cpp later)
+    // uiSetWifiConnected(wifi.isConnected());
+
     uiUpdate();
   }
+
+  // Future additions: heater control, touch handling, safety checks, etc.
 }
 
 // Helpers (unchanged)
@@ -106,13 +117,12 @@ String getFormattedDateTime() {
   int year, month, day, hour, minute, second;
   epochToDateTime(epoch, year, month, day, hour, minute, second);
 
-  char buf[20];  // Enough for "YYYY-MM-DD HH:MM:SS\0"
+  char buf[20];
   snprintf(buf, sizeof(buf), TIME_FORMAT_PATTERN, year, month, day, hour, minute, second);
 
   return String(buf);
 }
 
-// Helper: Convert Unix epoch seconds to broken-down date/time (UTC, then offset applied by NTPClient)
 void epochToDateTime(unsigned long epoch, int& year, int& month, int& day, int& hour, int& minute, int& second) {
   second = epoch % 60;
   epoch /= 60;
@@ -137,12 +147,12 @@ void epochToDateTime(unsigned long epoch, int& year, int& month, int& day, int& 
   while (true) {
     uint8_t dim = daysInMonth[month];
     if (month == 1 && ((year % 4 == 0 && year % 100 != 0) || (year % 400 == 0))) {
-      dim = 29;  // February leap
+      dim = 29;
     }
     if (epoch < dim) break;
     epoch -= dim;
     month++;
   }
-  month++;  // 1-based
-  day = epoch + 1;  // 1-based
+  month++;
+  day = epoch + 1;
 }
