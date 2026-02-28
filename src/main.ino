@@ -2,9 +2,9 @@
  * main.ino - Entry point for Giga R1 Sauna Controller with Giga Display
  *
  * Responsibilities:
- *   - Initialize hardware (display, WiFi, NTP, DS18B20)
+ *   - Initialize hardware (display, WiFi, NTP, sensors via SensorManager)
  *   - Handle WiFi connection with graceful retry (Phase 6: no blocking halt on failure)
- *   - Periodically read temperatures and update UI
+ *   - Periodically update sensors via SensorManager and feed to UI
  *   - Delegate all drawing / touch to UI module
  */
 
@@ -13,24 +13,16 @@
 #include <WiFi.h>
 #include <WiFiUdp.h>
 #include <NTPClient.h>
-#include <OneWire.h>
-#include <DallasTemperature.h>
-
 #include "UI.h"
-#include "Config.h" // For configuration constants
+#include "Config.h"         // For configuration constants
+#include "SensorManager.h"  // NEW: Sensor handling extracted
 
 GigaDisplay_GFX gfx;
 WiFiManager wifi;
 WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP, NTP_SERVER, NTP_TIME_OFFSET_SEC, NTP_UPDATE_INTERVAL_MS);
 
-OneWire oneWire(ONE_WIRE_BUS_PIN);
-DallasTemperature sensors(&oneWire);
-
-float temp1C = INVALID_TEMPERATURE_C;
-float temp1F = INVALID_TEMPERATURE_F;
-float temp2C = INVALID_TEMPERATURE_C;
-float temp2F = INVALID_TEMPERATURE_F;
+SensorManager sensorManager;  // Global instance - owns all DS18B20 logic
 
 void setup() {
   uiInit();  // Sets up display and shows "Connecting..."
@@ -46,7 +38,8 @@ void setup() {
     timeClient.begin();
     timeClient.update();
 
-    sensors.begin();
+    // Initialize sensors (moved from here)
+    sensorManager.init();
 
     gfx.fillScreen(0x0000);
     gfx.setTextSize(STARTUP_TEXT_SIZE);
@@ -60,7 +53,7 @@ void setup() {
     delay(STARTUP_MESSAGE_DELAY_MS);  // Brief display of message
 
     // Still initialize sensors so core functions work offline
-    sensors.begin();
+    sensorManager.init();
   }
 
   gfx.fillScreen(0x0000);  // Clear for main UI
@@ -76,20 +69,29 @@ void loop() {
   if (millis() - lastSensorRead >= SENSOR_READ_INTERVAL_MS) {
     lastSensorRead = millis();
 
-    sensors.requestTemperatures();
-    temp1C = sensors.getTempCByIndex(0);
-    temp1F = sensors.getTempFByIndex(0);
-    temp2C = sensors.getTempCByIndex(1);
-    temp2F = sensors.getTempFByIndex(1);
+    bool newReading = sensorManager.update();
 
-    // Feed to UI
+    const SaunaTemperatures& temps = sensorManager.getTemperatures();
+
+    // Feed to UI (convert C→F if needed - assuming uiSetTemp expects both)
+    float temp1C = temps.sauna;
+    float temp1F = (temp1C != TEMP_INVALID) ? (temp1C * 9.0/5.0 + 32.0) : INVALID_TEMPERATURE_F;
+    float temp2C = temps.heater;
+    float temp2F = (temp2C != TEMP_INVALID) ? (temp2C * 9.0/5.0 + 32.0) : INVALID_TEMPERATURE_F;
+
     uiSetTemp1(temp1C, temp1F);
     uiSetTemp2(temp2C, temp2F);
+
     uiSetWifiInfo(WiFi.SSID(), WiFi.localIP().toString(), getMacString());
     uiSetTime(getFormattedDateTime());
 
-    // Optional Phase 6: Let UI reflect current WiFi state (add this function to UI.h/.cpp later)
+    // Optional: Reflect WiFi state in UI
     // uiSetWifiConnected(wifi.isConnected());
+
+    // Optional: Add error feedback to UI
+    if (sensorManager.hasError()) {
+      // e.g., uiShowError("Sensor Error"); or flash warning
+    }
 
     uiUpdate();
   }
