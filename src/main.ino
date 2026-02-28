@@ -16,11 +16,12 @@
 #include "UI.h"
 #include "Config.h"         // For configuration constants
 #include "SensorManager.h"  // NEW: Sensor handling extracted
+#include "TimeUtils.h"      // Extracted time helper
 
 GigaDisplay_GFX gfx;
 WiFiManager wifi;
 WiFiUDP ntpUDP;
-NTPClient timeClient(ntpUDP, NTP_SERVER, NTP_TIME_OFFSET_SEC, NTP_UPDATE_INTERVAL_MS);
+NTPClient timeClient(ntpUDP, NTP_SERVER, TimeConfig::OFFSET_SEC, NTP_UPDATE_INTERVAL_MS);
 
 SensorManager sensorManager;  // Global instance - owns all DS18B20 logic
 
@@ -48,7 +49,7 @@ void setup() {
     delay(STARTUP_MESSAGE_DELAY_MS);
   } else {
     // Phase 6: Show warning but CONTINUE - no infinite loop
-    gfx.setTextColor(ERROR_TEXT_COLOR_565);
+    gfx.setTextColor(COLOR_WARNING);
     centerText("WiFi Failed - Retrying...", CENTER_TEXT_X, CENTER_TEXT_Y);
     delay(STARTUP_MESSAGE_DELAY_MS);  // Brief display of message
 
@@ -75,9 +76,9 @@ void loop() {
 
     // Feed to UI (convert C→F if needed - assuming uiSetTemp expects both)
     float temp1C = temps.sauna;
-    float temp1F = (temp1C != TEMP_INVALID) ? (temp1C * 9.0/5.0 + 32.0) : INVALID_TEMPERATURE_F;
+    float temp1F = (temp1C != TEMP_DISCONNECTED_C) ? (temp1C * 9.0/5.0 + 32.0) : TEMP_DISCONNECTED_F;
     float temp2C = temps.heater;
-    float temp2F = (temp2C != TEMP_INVALID) ? (temp2C * 9.0/5.0 + 32.0) : INVALID_TEMPERATURE_F;
+    float temp2F = (temp2C != TEMP_DISCONNECTED_C) ? (temp2C * 9.0/5.0 + 32.0) : TEMP_DISCONNECTED_F;
 
     uiSetTemp1(temp1C, temp1F);
     uiSetTemp2(temp2C, temp2F);
@@ -123,38 +124,4 @@ String getFormattedDateTime() {
   snprintf(buf, sizeof(buf), TIME_FORMAT_PATTERN, year, month, day, hour, minute, second);
 
   return String(buf);
-}
-
-void epochToDateTime(unsigned long epoch, int& year, int& month, int& day, int& hour, int& minute, int& second) {
-  second = epoch % 60;
-  epoch /= 60;
-  minute = epoch % 60;
-  epoch /= 60;
-  hour   = epoch % 24;
-  epoch /= 24;
-
-  year = 1970;
-  while (true) {
-    unsigned long daysInYear = 365;
-    if ((year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)) {
-      daysInYear = 366;
-    }
-    if (epoch < daysInYear) break;
-    epoch -= daysInYear;
-    year++;
-  }
-
-  static const uint8_t daysInMonth[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
-  month = 0;
-  while (true) {
-    uint8_t dim = daysInMonth[month];
-    if (month == 1 && ((year % 4 == 0 && year % 100 != 0) || (year % 400 == 0))) {
-      dim = 29;
-    }
-    if (epoch < dim) break;
-    epoch -= dim;
-    month++;
-  }
-  month++;
-  day = epoch + 1;
 }

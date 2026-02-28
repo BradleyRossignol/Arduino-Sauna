@@ -1,16 +1,16 @@
 // src/UI.cpp
 #include "UI.h"
-#include "UIConfig.h"          // ← New include for Phase 5
+#include "Config.h"          // Merged constants (was UIConfig.h)
 #include <Arduino.h>
 #include <DallasTemperature.h>  // For DEVICE_DISCONNECTED_C (add if not indirect via main)
 
 // ────────────────────────────────────────────────
 // Private UI state
 // ────────────────────────────────────────────────
-static float _temp1C = DEVICE_DISCONNECTED_C;  // Better default
-static float _temp1F = DEVICE_DISCONNECTED_C;
-static float _temp2C = DEVICE_DISCONNECTED_C;
-static float _temp2F = DEVICE_DISCONNECTED_C;
+static float _temp1C = TEMP_DISCONNECTED_C;  // Updated default
+static float _temp1F = TEMP_DISCONNECTED_C;
+static float _temp2C = TEMP_DISCONNECTED_C;
+static float _temp2F = TEMP_DISCONNECTED_C;
 
 static String _wifiSSID = "";
 static String _wifiIP   = "";
@@ -37,7 +37,7 @@ static void drawSensor(const char* label, float tempC, float tempF, int yPos) {
   gfx.setCursor(UI_LABEL_X, yPos);
   gfx.print(label);
 
-  if (tempC == DEVICE_DISCONNECTED_C) {  // More accurate check
+  if (tempC == TEMP_DISCONNECTED_C) {  // Updated check
     gfx.setTextColor(COLOR_WARNING);
     gfx.setCursor(UI_VALUE_X, yPos);
     gfx.print("Disconnected");

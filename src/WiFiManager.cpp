@@ -1,81 +1,66 @@
+// src/WiFiManager.cpp
 #include "WiFiManager.h"
-#include "arduino_secrets.h"  // SECRET_SSID, SECRET_PASS
-#include "Config.h"           // If you have constants like NTP_SERVER there
+#include <WiFi.h> // GIGA uses Mbed WiFi.h
+#include "Config.h" // For TimeConfig::OFFSET_SEC, NTP_SERVER, etc.
+#include "arduino_secrets.h" // SECRET_SSID, SECRET_PASS
 
-WiFiManager::WiFiManager() 
-    : timeClient(ntpUDP, NTP_SERVER, NTP_TIME_OFFSET_SEC, NTP_UPDATE_INTERVAL_MS) {
-    // Constructor
-}
+#include <NTPClient.h>   // ← Added: Defines NTPClient class (fixes "does not name a type")
+#include <WiFiUdp.h>     // ← Added: Defines WiFiUDP (for ntpUDP extern)
+
+// If using NTPClient lib (make sure it's in lib_deps or #include <NTPClient.h>)
+// For now, assume it's global/extern from main.ino
+extern WiFiUDP ntpUDP;
+extern NTPClient timeClient; // Fix: make sure declared extern if in main.ino
+
+WiFiManager::WiFiManager() {}
 
 bool WiFiManager::begin() {
-    Serial.println("Initializing WiFi...");
-
-    // NO WiFi.mode(WIFI_STA);  <-- Remove this line! Not supported on Giga
-
-    WiFi.begin(SECRET_SSID, SECRET_PASS);
-
-    unsigned long start = millis();
-    const unsigned long timeout = 12000;  // 12 seconds max
-
-    while (WiFi.status() != WL_CONNECTED && millis() - start < timeout) {
-        delay(400);
-        Serial.print(".");
-    }
-    Serial.println();
-
-    bool connected = (WiFi.status() == WL_CONNECTED);
-    if (connected) {
-        Serial.println("WiFi connected! IP: " + WiFi.localIP().toString());
-        syncNTP();
-        wasConnected = true;
-    } else {
-        Serial.println("Initial WiFi connection failed - will retry later");
-        wasConnected = false;
-    }
-
-    lastAttempt = millis();
-    return connected;
-}
-
-void WiFiManager::maintain() {
-    unsigned long now = millis();
-
-    if (WiFi.status() != WL_CONNECTED) {
-        if (wasConnected) {
-            Serial.println("WiFi disconnected!");
-            // Optional: uiSetWifiConnected(false); or show warning icon
-            wasConnected = false;
-        }
-
-        if (now - lastAttempt >= 15000UL) {  // Retry every 15 seconds
-            lastAttempt = now;
-            Serial.println("Reconnecting to WiFi...");
-            WiFi.disconnect();           // <-- Fixed: no bool argument
-            WiFi.begin(SECRET_SSID, SECRET_PASS);
-            // begin() may block briefly on fail; acceptable at this interval
-        }
-    } else {
-        if (!wasConnected) {
-            Serial.println("WiFi reconnected! IP: " + WiFi.localIP().toString());
-            syncNTP();
-            // Optional: uiSetWifiConnected(true);
-            wasConnected = true;
-        }
-    }
+  // No WiFi.mode(WIFI_STA) needed on GIGA – begin() puts it in client mode
+  WiFi.begin(SECRET_SSID, SECRET_PASS);
+  unsigned long start = millis();
+  const unsigned long timeoutMs = 15000UL;
+  while (WiFi.status() != WL_CONNECTED && millis() - start < timeoutMs) {
+    delay(500);
+  }
+  bool success = (WiFi.status() == WL_CONNECTED);
+  if (success) {
+      // NTP setup (if using NTPClient)
+    timeClient.begin();
+    timeClient.setTimeOffset(TimeConfig::OFFSET_SEC);
+    timeClient.update();
+  }
+  return success;
 }
 
 bool WiFiManager::isConnected() {
-    return WiFi.status() == WL_CONNECTED;
+  return WiFi.status() == WL_CONNECTED;
 }
 
-void WiFiManager::syncNTP() {
-    if (isConnected()) {
-        timeClient.begin();
-        if (timeClient.update()) {
-            Serial.println("NTP synced: " + timeClient.getFormattedTime());
-            // If you set RTC or system time here, do it
-        } else {
-            Serial.println("NTP update failed");
-        }
+void WiFiManager::maintain() {
+  static unsigned long lastCheck = 0;
+  unsigned long now = millis();
+  if (now - lastCheck >= 15000UL) {
+      lastCheck = now;
+    if (!isConnected()) {
+        // No reconnect() – just call begin() again (non-blocking if credentials set)
+      WiFi.begin(SECRET_SSID, SECRET_PASS);
     }
+  }
+}
+
+String WiFiManager::getSSID() const {
+  return WiFi.SSID();
+}
+
+String WiFiManager::getIP() const {
+  return WiFi.localIP().toString();
+}
+
+String WiFiManager::getMAC() const {
+  byte mac[6];
+  WiFi.macAddress(mac);
+  char buf[18];
+  snprintf(buf, sizeof(buf), "%02X:%02X:%02X:%02X:%02X:%02X",
+    mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+  return String(buf);
 }

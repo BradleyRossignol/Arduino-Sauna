@@ -1,26 +1,19 @@
-#ifndef WIFIMANAGER_H
-#define WIFIMANAGER_H
+#ifndef WIFI_MANAGER_H
+#define WIFI_MANAGER_H
 
-#include <WiFi.h>
-#include <NTPClient.h>
-#include <WiFiUdp.h>
+#include <Arduino.h>
 
 class WiFiManager {
 public:
-    WiFiManager();
-    bool begin();                  // Returns true if connected after attempt
-    void maintain();               // Call in loop() for background reconnects
-    bool isConnected();
-    void syncNTP();
-    // Add your existing methods (e.g. getIP() if any)
+  WiFiManager();
 
-private:
-    unsigned long lastAttempt = 0;
-    bool wasConnected = false;
-    WiFiUDP ntpUDP;
-    NTPClient timeClient;
+  bool begin();                    // Returns true if connected within timeout
+  bool isConnected();
+  void maintain();                 // Periodic check/retry
+
+  String getSSID() const;
+  String getIP() const;
+  String getMAC() const;
 };
-
-extern WiFiManager wifi;  // Assuming global instance as in your main.ino
 
 #endif
