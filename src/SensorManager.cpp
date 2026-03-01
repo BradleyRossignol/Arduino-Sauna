@@ -1,5 +1,9 @@
 #include "SensorManager.h"
 
+// ── Toggle detailed debug output ────────────────────────────────────────────
+// Set to 1 for verbose logging (every sensor value on success), 0 for minimal
+#define SENSOR_DEBUG 1
+
 SensorManager::SensorManager() 
     : oneWire(ONE_WIRE_BUS_PIN),
       sensors(&oneWire)
@@ -21,7 +25,7 @@ void SensorManager::init() {
     sensors.setWaitForConversion(false);           // Async mode
     conversionDelay = sensors.millisToWaitForConversion(12);
 
-    Serial.begin(115200);
+    // Serial.begin(115200);  // Assume called in main.ino — comment out if needed
     Serial.println("Sensor init | Count: " + String(sensorCount) + " | Async delay: " + String(conversionDelay) + " ms");
 }
 
@@ -32,9 +36,8 @@ bool SensorManager::update() {
         Serial.println("[" + String(now) + "] Blocking fallback cycle");
         sensors.setWaitForConversion(true);
         sensors.requestTemperatures();
-        // DallasTemperature handles the blocking wait internally here
         readTemperatures();
-        sensors.setWaitForConversion(false);  // Restore async for next
+        sensors.setWaitForConversion(false);  // Restore async
 
         lastRead = now;
         consecutiveFailures = 0;
@@ -58,7 +61,7 @@ bool SensorManager::update() {
             return false;
         }
 
-        Serial.println("[" + String(now) + "] Reading after " + String(now - conversionStart) + " ms");
+        Serial.print("[" + String(now) + "] Reading after " + String(now - conversionStart) + " ms → ");
 
         readTemperatures();
 
@@ -74,6 +77,11 @@ bool SensorManager::update() {
             }
         } else {
             consecutiveFailures = 0;
+#if SENSOR_DEBUG
+            Serial.println("OK");
+#else
+            Serial.println("OK (valid)");
+#endif
         }
 
         return temps.valid;
@@ -88,18 +96,31 @@ void SensorManager::readTemperatures() {
     temps.heater  = (sensorCount >= 2) ? sensors.getTempCByIndex(1) : INVALID_TEMPERATURE_C;
     temps.ambient = (sensorCount >= 3) ? sensors.getTempCByIndex(2) : INVALID_TEMPERATURE_C;
 
+#if SENSOR_DEBUG
     for (uint8_t i = 0; i < sensorCount; i++) {
         float t = sensors.getTempCByIndex(i);
         if (t == DEVICE_DISCONNECTED_C || t == INVALID_TEMPERATURE_C) {
             errorFlag = true;
             temps.valid = false;
-            Serial.println("Sensor " + String(i) + " invalid: " + String(t));
+            Serial.println("  Sensor " + String(i) + " invalid: " + String(t));
         } else {
-            Serial.println("Sensor " + String(i) + ": " + String(t) + " C");
+            Serial.println("  Sensor " + String(i) + ": " + String(t) + " C");
         }
     }
+#else
+    // Minimal check only
+    for (uint8_t i = 0; i < sensorCount; i++) {
+        float t = sensors.getTempCByIndex(i);
+        if (t == DEVICE_DISCONNECTED_C || t == INVALID_TEMPERATURE_C) {
+            errorFlag = true;
+            temps.valid = false;
+        }
+    }
+#endif
 
-    Serial.println(temps.valid ? "Valid data set" : "Data invalid");
+    if (!temps.valid) {
+        Serial.println("Data invalid");
+    }
 }
 
 const SaunaTemperatures& SensorManager::getTemperatures() const {
