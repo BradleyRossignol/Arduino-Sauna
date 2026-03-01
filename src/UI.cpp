@@ -1,13 +1,16 @@
 // src/UI.cpp
 #include "UI.h"
-#include "Config.h"          // Merged constants (was UIConfig.h)
+#include "Config.h"             // For SCREEN_WIDTH, colors, UI constants
 #include <Arduino.h>
-#include <DallasTemperature.h>  // For DEVICE_DISCONNECTED_C (add if not indirect via main)
+#include <DallasTemperature.h>  // For DEVICE_DISCONNECTED_C
+
+#include "SensorManager.h"      // For hadRecentFallback()
+extern SensorManager sensorManager;  // Global from main.ino
 
 // ────────────────────────────────────────────────
 // Private UI state
 // ────────────────────────────────────────────────
-static float _temp1C = TEMP_DISCONNECTED_C;  // Updated default
+static float _temp1C = TEMP_DISCONNECTED_C;
 static float _temp1F = TEMP_DISCONNECTED_C;
 static float _temp2C = TEMP_DISCONNECTED_C;
 static float _temp2F = TEMP_DISCONNECTED_C;
@@ -37,7 +40,7 @@ static void drawSensor(const char* label, float tempC, float tempF, int yPos) {
   gfx.setCursor(UI_LABEL_X, yPos);
   gfx.print(label);
 
-  if (tempC == TEMP_DISCONNECTED_C) {  // Updated check
+  if (tempC == TEMP_DISCONNECTED_C) {
     gfx.setTextColor(COLOR_WARNING);
     gfx.setCursor(UI_VALUE_X, yPos);
     gfx.print("Disconnected");
@@ -134,10 +137,26 @@ static void drawAllInfo() {
   y += UI_LINE_HEIGHT + UI_SENSOR_Y_GAP;
 
   drawSensor("Temp Sensor #2:", _temp2C, _temp2F, y);
+
+  // ── Async sensor health indicator (top-right corner) ─────────────────────
+  const int statusX = SCREEN_WIDTH - 160;  // Safe top-right margin
+  const int statusY = 15;
+  const int statusW = 150;
+  const int statusH = 25;
+
+  if (sensorManager.hadRecentFallback()) {
+    gfx.setTextSize(UI_NORMAL_SIZE - 1);  // Subtle
+    gfx.setTextColor(COLOR_WARNING);
+    gfx.setCursor(statusX, statusY);
+    gfx.print("Sensor Recovery");
+  } else {
+    // Clear area cleanly (use literal black to match fillScreen)
+    gfx.fillRect(statusX, statusY - 5, statusW, statusH + 10, 0x0000);
+  }
 }
 
 // ────────────────────────────────────────────────
-// Public API (unchanged)
+// Public API
 // ────────────────────────────────────────────────
 
 void uiInit() {

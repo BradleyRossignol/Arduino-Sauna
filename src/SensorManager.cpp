@@ -25,7 +25,7 @@ void SensorManager::init() {
     sensors.setWaitForConversion(false);           // Async mode
     conversionDelay = sensors.millisToWaitForConversion(12);
 
-    // Serial.begin(115200);  // Assume called in main.ino — comment out if needed
+    // Serial.begin(115200);  // Assume called in main.ino
     Serial.println("Sensor init | Count: " + String(sensorCount) + " | Async delay: " + String(conversionDelay) + " ms");
 }
 
@@ -41,6 +41,7 @@ bool SensorManager::update() {
 
         lastRead = now;
         consecutiveFailures = 0;
+        lastFallbackTime = now;  // Record for UI
         useBlockingFallbackThisCycle = false;
         return temps.valid;
     }
@@ -108,7 +109,6 @@ void SensorManager::readTemperatures() {
         }
     }
 #else
-    // Minimal check only
     for (uint8_t i = 0; i < sensorCount; i++) {
         float t = sensors.getTempCByIndex(i);
         if (t == DEVICE_DISCONNECTED_C || t == INVALID_TEMPERATURE_C) {
@@ -121,6 +121,11 @@ void SensorManager::readTemperatures() {
     if (!temps.valid) {
         Serial.println("Data invalid");
     }
+}
+
+bool SensorManager::hadRecentFallback() const {
+    unsigned long now = millis();
+    return (lastFallbackTime > 0) && (now - lastFallbackTime < FALLBACK_RECENT_MS);
 }
 
 const SaunaTemperatures& SensorManager::getTemperatures() const {

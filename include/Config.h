@@ -4,6 +4,11 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
+#define SCREEN_WIDTH  800
+#define SCREEN_HEIGHT 480
+#define COLOR_BACKGROUND 0x0000  // Black
+
+
 // ────────────────────────────────────────────────
 // Hardware Pins
 // ────────────────────────────────────────────────

@@ -25,6 +25,9 @@ public:
     bool hasError() const;
     uint8_t getSensorCount() const;
 
+    // ── New: UI feedback for async health ───────────────────────────────────
+    bool hadRecentFallback() const;              // true if fallback used recently
+
 private:
     OneWire oneWire;
     DallasTemperature sensors;
@@ -39,10 +42,14 @@ private:
     unsigned long conversionDelay = 750;         // Set accurately in init()
     bool waitingForConversion = false;
 
-    // ── Stability enhancements (post-8abda0d) ───────────────────────────────
+    // ── Stability enhancements ──────────────────────────────────────────────
     int consecutiveFailures = 0;
     const int MAX_CONSECUTIVE_FAILURES = 3;
     bool useBlockingFallbackThisCycle = false;
+
+    // ── For UI status ───────────────────────────────────────────────────────
+    unsigned long lastFallbackTime = 0;
+    static const unsigned long FALLBACK_RECENT_MS = 30000;  // 30 seconds
 
     void readTemperatures();                     // Shared read logic
 };
