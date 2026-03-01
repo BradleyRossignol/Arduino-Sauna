@@ -4,21 +4,22 @@
 #include <Arduino.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
-#include "Config.h"
+#include "Config.h"           // For pins, MAX_SENSORS, SENSOR_READ_INTERVAL_MS, etc.
 
+// ── Temperature data structure (defined here as in original commit) ────────
 struct SaunaTemperatures {
-    float sauna;    // Primary sauna temp
-    float heater;   // Near heater/element for safety
-    float ambient;  // Room/outside (if present)
-    // Expand for more sensors (e.g., humidity later)
-    bool valid = false;
+    float sauna   = INVALID_TEMPERATURE_C;
+    float heater  = INVALID_TEMPERATURE_C;
+    float ambient = INVALID_TEMPERATURE_C;
+    bool  valid   = false;
 };
 
 class SensorManager {
 public:
     SensorManager();
+
     void init();
-    bool update();  // Returns true if new valid reading available
+    bool update();                               // true = new valid data ready
     const SaunaTemperatures& getTemperatures() const;
     float getAverageTemp() const;
     bool hasError() const;
@@ -27,11 +28,18 @@ public:
 private:
     OneWire oneWire;
     DallasTemperature sensors;
-    SaunaTemperatures temps;
     DeviceAddress addresses[MAX_SENSORS];
     uint8_t sensorCount = 0;
+    SaunaTemperatures temps;
     bool errorFlag = false;
     unsigned long lastRead = 0;
+
+    // ── Phase 8: Async support ──────────────────────────────────────────────
+    unsigned long conversionStart = 0;
+    unsigned long conversionDelay = 750;         // Set accurately in init()
+    bool waitingForConversion = false;
+
+    void readTemperatures();                     // Shared read logic
 };
 
 #endif
