@@ -29,7 +29,7 @@ SensorManager sensorManager;  // Global instance - owns all DS18B20 logic
 Arduino_GigaDisplayTouch touchDetector;  // Global for touch
 
 void setup() {
-  uiInit();  // Sets up display and shows "Connecting..."
+  uiInit();  // Sets up display and shows "Connecting..." (likely includes gfx.setRotation(1) or similar)
   DEBUG_INIT(115200);   // Phase 8.1
 
   LOG_INFO(F("Sauna Controller starting"));
@@ -109,35 +109,58 @@ void loop() {
     uiUpdate();
   }
 
-  // Touch polling – fixed logging to avoid print overload
-  static unsigned long lastTouchLog = 0;
-  if (millis() - lastTouchLog >= 300) {
+  // Touch polling with mapping + visual feedback dot (fixed scope issue)
+  static unsigned long lastTouchCheck = 0;
+  static unsigned long lastDotDrawn = 0;
+  static bool dotActive = false;
+  static uint16_t dot_x = 0;  // Persist mapped position for erase
+  static uint16_t dot_y = 0;
+
+  if (millis() - lastTouchCheck >= 200) {  // Check ~5× per second to catch taps without spam
+    lastTouchCheck = millis();
+
     uint8_t contacts;
     GDTpoint_t points[5];
 
     contacts = touchDetector.getTouchPoints(points);
 
     if (contacts > 0) {
-      lastTouchLog = millis();
+      // Use first touch point
+      uint16_t raw_x = points[0].x;
+      uint16_t raw_y = points[0].y;
 
+      // Map to GFX landscape coordinates (assumes gfx.setRotation(1) in uiInit())
+      // Raw touch: portrait (x:0-479 narrow, y:0-799 tall)
+      // Mapped: landscape (x:0-799 wide, y:0-479 high)
+      uint16_t mapped_x = raw_y;
+      uint16_t mapped_y = 479 - raw_x;
+
+      // Log raw and mapped
       Serial.print(F("[INFO] Touch detected: "));
       Serial.print(contacts);
       Serial.println(F(" contacts"));
-
-      Serial.print(F("  Point 0: x="));
-      Serial.print(points[0].x);
+      Serial.print(F("  Raw: x="));
+      Serial.print(raw_x);
       Serial.print(F(", y="));
-      Serial.println(points[0].y);
+      Serial.println(raw_y);
+      Serial.print(F("  Mapped: x="));
+      Serial.print(mapped_x);
+      Serial.print(F(", y="));
+      Serial.println(mapped_y);
 
-      for (uint8_t i = 1; i < contacts; i++) {
-        Serial.print(F("  Point "));
-        Serial.print(i);
-        Serial.print(F(": x="));
-        Serial.print(points[i].x);
-        Serial.print(F(", y="));
-        Serial.println(points[i].y);
-      }
+      // Draw red feedback dot
+      gfx.fillCircle(mapped_x, mapped_y, 12, gfx.color565(255, 0, 0));  // Red, radius 12 px
+      dot_x = mapped_x;
+      dot_y = mapped_y;
+      dotActive = true;
+      lastDotDrawn = millis();
     }
+  }
+
+  // Erase dot after 500 ms (cover with black circle slightly larger)
+  if (dotActive && millis() - lastDotDrawn >= 500) {
+    gfx.fillCircle(dot_x, dot_y, 14, 0x0000);  // Black to erase red dot
+    dotActive = false;
   }
 
   // Future: heater control, touch actions, safety, etc.
