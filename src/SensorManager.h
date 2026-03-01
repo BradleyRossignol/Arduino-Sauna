@@ -6,7 +6,7 @@
 #include <DallasTemperature.h>
 #include "Config.h"           // For pins, MAX_SENSORS, SENSOR_READ_INTERVAL_MS, etc.
 
-// ── Temperature data structure (defined here as in original commit) ────────
+// ── Temperature data structure ─────────────────────────────────────────────
 struct SaunaTemperatures {
     float sauna   = INVALID_TEMPERATURE_C;
     float heater  = INVALID_TEMPERATURE_C;
@@ -38,6 +38,11 @@ private:
     unsigned long conversionStart = 0;
     unsigned long conversionDelay = 750;         // Set accurately in init()
     bool waitingForConversion = false;
+
+    // ── Stability enhancements (post-8abda0d) ───────────────────────────────
+    int consecutiveFailures = 0;
+    const int MAX_CONSECUTIVE_FAILURES = 3;
+    bool useBlockingFallbackThisCycle = false;
 
     void readTemperatures();                     // Shared read logic
 };

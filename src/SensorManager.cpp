@@ -1,4 +1,4 @@
-#include "SensorManager.h"   // ← Critical: this brings in SaunaTemperatures definition
+#include "SensorManager.h"
 
 SensorManager::SensorManager() 
     : oneWire(ONE_WIRE_BUS_PIN),
@@ -13,6 +13,7 @@ void SensorManager::init() {
     for (uint8_t i = 0; i < sensorCount; i++) {
         if (!sensors.getAddress(addresses[i], i)) {
             errorFlag = true;
+            Serial.println("Failed to get address for sensor " + String(i));
         }
     }
 
@@ -20,12 +21,26 @@ void SensorManager::init() {
     sensors.setWaitForConversion(false);           // Async mode
     conversionDelay = sensors.millisToWaitForConversion(12);
 
-    Serial.begin(115200);  // Safe to call again if already done in main
+    Serial.begin(115200);
     Serial.println("Sensor init | Count: " + String(sensorCount) + " | Async delay: " + String(conversionDelay) + " ms");
 }
 
 bool SensorManager::update() {
     unsigned long now = millis();
+
+    if (useBlockingFallbackThisCycle) {
+        Serial.println("[" + String(now) + "] Blocking fallback cycle");
+        sensors.setWaitForConversion(true);
+        sensors.requestTemperatures();
+        // DallasTemperature handles the blocking wait internally here
+        readTemperatures();
+        sensors.setWaitForConversion(false);  // Restore async for next
+
+        lastRead = now;
+        consecutiveFailures = 0;
+        useBlockingFallbackThisCycle = false;
+        return temps.valid;
+    }
 
     if (!waitingForConversion) {
         if (now - lastRead < SENSOR_READ_INTERVAL_MS) {
@@ -49,6 +64,18 @@ bool SensorManager::update() {
 
         lastRead = now;
         waitingForConversion = false;
+
+        if (!temps.valid) {
+            consecutiveFailures++;
+            Serial.println("Async read failed (" + String(consecutiveFailures) + "/" + String(MAX_CONSECUTIVE_FAILURES) + ")");
+            if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+                useBlockingFallbackThisCycle = true;
+                Serial.println("→ Switching to blocking fallback next cycle");
+            }
+        } else {
+            consecutiveFailures = 0;
+        }
+
         return temps.valid;
     }
 }
