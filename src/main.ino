@@ -18,6 +18,7 @@
 #include "SensorManager.h"  // NEW: Sensor handling extracted
 #include "TimeUtils.h"      // Extracted time helper
 #include "Debug.h"          // Phase 8.1 debug macros
+#include "Arduino_GigaDisplayTouch.h"  // For touch support
 
 GigaDisplay_GFX gfx;
 WiFiManager wifi;
@@ -25,6 +26,7 @@ WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP, NTP_SERVER, TimeConfig::OFFSET_SEC, NTP_UPDATE_INTERVAL_MS);
 
 SensorManager sensorManager;  // Global instance - owns all DS18B20 logic
+Arduino_GigaDisplayTouch touchDetector;  // Global for touch
 
 void setup() {
   uiInit();  // Sets up display and shows "Connecting..."
@@ -66,11 +68,18 @@ void setup() {
     sensorManager.init();
   }
 
+  // Initialize touch controller
+  if (touchDetector.begin()) {
+    LOG_INFO(F("Touch controller initialized successfully"));
+  } else {
+    LOG_ERROR(F("Failed to initialize touch controller"));
+  }
+
   gfx.fillScreen(0x0000);  // Clear for main UI
 }
 
 void loop() {
-  // Phase 6: Maintain WiFi in background (checks status, retries if disconnected)
+  // Phase 6: Maintain WiFi in background
   wifi.maintain();
 
   timeClient.update();  // Safe even if not connected
@@ -83,7 +92,7 @@ void loop() {
 
     const SaunaTemperatures& temps = sensorManager.getTemperatures();
 
-    // Feed to UI (convert C→F if needed - assuming uiSetTemp expects both)
+    // Convert C→F if needed (assuming uiSetTemp expects both)
     float temp1C = temps.sauna;
     float temp1F = (temp1C != TEMP_DISCONNECTED_C) ? (temp1C * 9.0/5.0 + 32.0) : TEMP_DISCONNECTED_F;
     float temp2C = temps.heater;
@@ -95,18 +104,43 @@ void loop() {
     uiSetWifiInfo(WiFi.SSID(), WiFi.localIP().toString(), getMacString());
     uiSetTime(getFormattedDateTime());
 
-    // Optional: Reflect WiFi state in UI
-    // uiSetWifiConnected(wifi.isConnected());
-
-    // Optional: Add error feedback to UI
-    if (sensorManager.hasError()) {
-      // e.g., uiShowError("Sensor Error"); or flash warning
-    }
+    // Optional: Reflect WiFi state or errors in UI later
 
     uiUpdate();
   }
 
-  // Future additions: heater control, touch handling, safety checks, etc.
+  // Touch polling – fixed logging to avoid print overload
+  static unsigned long lastTouchLog = 0;
+  if (millis() - lastTouchLog >= 300) {
+    uint8_t contacts;
+    GDTpoint_t points[5];
+
+    contacts = touchDetector.getTouchPoints(points);
+
+    if (contacts > 0) {
+      lastTouchLog = millis();
+
+      Serial.print(F("[INFO] Touch detected: "));
+      Serial.print(contacts);
+      Serial.println(F(" contacts"));
+
+      Serial.print(F("  Point 0: x="));
+      Serial.print(points[0].x);
+      Serial.print(F(", y="));
+      Serial.println(points[0].y);
+
+      for (uint8_t i = 1; i < contacts; i++) {
+        Serial.print(F("  Point "));
+        Serial.print(i);
+        Serial.print(F(": x="));
+        Serial.print(points[i].x);
+        Serial.print(F(", y="));
+        Serial.println(points[i].y);
+      }
+    }
+  }
+
+  // Future: heater control, touch actions, safety, etc.
 }
 
 // Helpers (unchanged)
