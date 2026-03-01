@@ -17,6 +17,7 @@
 #include "Config.h"         // For configuration constants
 #include "SensorManager.h"  // NEW: Sensor handling extracted
 #include "TimeUtils.h"      // Extracted time helper
+#include "Debug.h"          // Phase 8.1 debug macros
 
 GigaDisplay_GFX gfx;
 WiFiManager wifi;
@@ -27,7 +28,15 @@ SensorManager sensorManager;  // Global instance - owns all DS18B20 logic
 
 void setup() {
   uiInit();  // Sets up display and shows "Connecting..."
+  DEBUG_INIT(115200);   // Phase 8.1
 
+  LOG_INFO(F("Sauna Controller starting"));
+  LOG_INFO(F("Build date/time: "));
+  DEBUG_PRINT(__DATE__);
+  DEBUG_PRINT(F(" "));
+  DEBUG_PRINTLN(__TIME__);
+  LOG_INFO(F("Debug level: "));
+  DEBUG_PRINTLN(DEBUG_LEVEL);
   wifi.begin();  // Attempt connection (timed/returns success)
 
   gfx.fillScreen(0x0000);
