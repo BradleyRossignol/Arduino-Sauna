@@ -109,14 +109,14 @@ void loop() {
     uiUpdate();
   }
 
-  // Touch polling with mapping + visual feedback dot (fixed scope issue)
+    // Touch polling with corrected mapping + visual feedback dot
   static unsigned long lastTouchCheck = 0;
   static unsigned long lastDotDrawn = 0;
   static bool dotActive = false;
-  static uint16_t dot_x = 0;  // Persist mapped position for erase
+  static uint16_t dot_x = 0;
   static uint16_t dot_y = 0;
 
-  if (millis() - lastTouchCheck >= 200) {  // Check ~5× per second to catch taps without spam
+  if (millis() - lastTouchCheck >= 200) {
     lastTouchCheck = millis();
 
     uint8_t contacts;
@@ -125,31 +125,30 @@ void loop() {
     contacts = touchDetector.getTouchPoints(points);
 
     if (contacts > 0) {
-      // Use first touch point
       uint16_t raw_x = points[0].x;
       uint16_t raw_y = points[0].y;
 
-      // Map to GFX landscape coordinates (assumes gfx.setRotation(1) in uiInit())
-      // Raw touch: portrait (x:0-479 narrow, y:0-799 tall)
-      // Mapped: landscape (x:0-799 wide, y:0-479 high)
+      // Corrected mapping for landscape (setRotation(1) typical):
+      // - Swap axes: raw portrait y → screen x (wide 0-799)
+      // - Flip y: 479 - raw_x → screen y (top 0 to bottom 479)
       uint16_t mapped_x = raw_y;
       uint16_t mapped_y = 479 - raw_x;
 
-      // Log raw and mapped
+      // Log with more context
       Serial.print(F("[INFO] Touch detected: "));
       Serial.print(contacts);
       Serial.println(F(" contacts"));
-      Serial.print(F("  Raw: x="));
+      Serial.print(F("  Raw (portrait): x="));
       Serial.print(raw_x);
       Serial.print(F(", y="));
       Serial.println(raw_y);
-      Serial.print(F("  Mapped: x="));
+      Serial.print(F("  Mapped (landscape): x="));
       Serial.print(mapped_x);
       Serial.print(F(", y="));
       Serial.println(mapped_y);
 
-      // Draw red feedback dot
-      gfx.fillCircle(mapped_x, mapped_y, 12, gfx.color565(255, 0, 0));  // Red, radius 12 px
+      // Draw red feedback dot at mapped position
+      gfx.fillCircle(mapped_x, mapped_y, 12, gfx.color565(255, 0, 0));  // Red, r=12
       dot_x = mapped_x;
       dot_y = mapped_y;
       dotActive = true;
@@ -157,9 +156,9 @@ void loop() {
     }
   }
 
-  // Erase dot after 500 ms (cover with black circle slightly larger)
+  // Erase dot after 500 ms (slightly larger black circle to cover fully)
   if (dotActive && millis() - lastDotDrawn >= 500) {
-    gfx.fillCircle(dot_x, dot_y, 14, 0x0000);  // Black to erase red dot
+    gfx.fillCircle(dot_x, dot_y, 14, 0x0000);
     dotActive = false;
   }
 
