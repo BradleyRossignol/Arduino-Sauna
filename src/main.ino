@@ -1,11 +1,5 @@
 /*
  * main.ino - Entry point for Giga R1 Sauna Controller with Giga Display
- *
- * Responsibilities:
- *   - Initialize hardware (display, WiFi, NTP, sensors via SensorManager)
- *   - Handle WiFi connection with graceful retry (Phase 6: no blocking halt on failure)
- *   - Periodically update sensors via SensorManager and feed to UI
- *   - Delegate all drawing / touch to UI module
  */
 
 #include <Arduino_GigaDisplay_GFX.h>
@@ -14,23 +8,53 @@
 #include <WiFiUdp.h>
 #include <NTPClient.h>
 #include "UI.h"
-#include "Config.h"         // For configuration constants
-#include "SensorManager.h"  // NEW: Sensor handling extracted
-#include "TimeUtils.h"      // Extracted time helper
-#include "Debug.h"          // Phase 8.1 debug macros
-#include "Arduino_GigaDisplayTouch.h"  // For touch support
+#include "Config.h"
+#include "SensorManager.h"
+#include "TimeUtils.h"
+#include "Debug.h"
+#include "Arduino_GigaDisplayTouch.h"
 
 GigaDisplay_GFX gfx;
 WiFiManager wifi;
 WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP, NTP_SERVER, TimeConfig::OFFSET_SEC, NTP_UPDATE_INTERVAL_MS);
 
-SensorManager sensorManager;  // Global instance - owns all DS18B20 logic
-Arduino_GigaDisplayTouch touchDetector;  // Global for touch
+SensorManager sensorManager;
+Arduino_GigaDisplayTouch touchDetector;
+
+// UI states
+enum UiState { MAIN, MENU, NETWORK_INFO, SENSOR_INFO };
+static UiState currentState = MAIN;
+static bool stateChanged = true;
+
+// Persistent menu icon
+void drawMenuIcon() {
+  gfx.fillRect(730, 20, 50, 8, 0xFFFF);
+  gfx.fillRect(730, 40, 50, 8, 0xFFFF);
+  gfx.fillRect(730, 60, 50, 8, 0xFFFF);
+}
+
+// Turquoise color constant
+#define COLOR_TURQUOISE gfx.color565(0, 255, 255)
+
+// Common header + back button in turquoise
+void drawInfoHeader(const char* title) {
+  gfx.setTextColor(COLOR_TURQUOISE);
+  gfx.setTextSize(3);                 // Adjust size to match your preference
+  gfx.setCursor(120, 40);             // Centered-ish at top
+  gfx.print(title);
+
+  // Back button in turquoise
+  gfx.fillRoundRect(200, 400, 400, 60, 15, COLOR_TURQUOISE);
+  gfx.setTextColor(0x0000);           // Black text on turquoise for contrast
+  gfx.setTextSize(3);
+  gfx.setCursor(320, 420);
+  gfx.print("Back");
+}
 
 void setup() {
-  uiInit();  // Sets up display and shows "Connecting..." (likely includes gfx.setRotation(1) or similar)
-  DEBUG_INIT(115200);   // Phase 8.1
+  uiInit();
+  DEBUG_INIT(115200);
 
   LOG_INFO(F("Sauna Controller starting"));
   LOG_INFO(F("Build date/time: "));
@@ -39,7 +63,8 @@ void setup() {
   DEBUG_PRINTLN(__TIME__);
   LOG_INFO(F("Debug level: "));
   DEBUG_PRINTLN(DEBUG_LEVEL);
-  wifi.begin();  // Attempt connection (timed/returns success)
+
+  wifi.begin();
 
   gfx.fillScreen(0x0000);
 
@@ -50,7 +75,6 @@ void setup() {
     timeClient.begin();
     timeClient.update();
 
-    // Initialize sensors (moved from here)
     sensorManager.init();
 
     gfx.fillScreen(0x0000);
@@ -59,57 +83,51 @@ void setup() {
     gfx.print("DS18B20 sensors ready");
     delay(STARTUP_MESSAGE_DELAY_MS);
   } else {
-    // Phase 6: Show warning but CONTINUE - no infinite loop
     gfx.setTextColor(COLOR_WARNING);
     centerText("WiFi Failed - Retrying...", CENTER_TEXT_X, CENTER_TEXT_Y);
-    delay(STARTUP_MESSAGE_DELAY_MS);  // Brief display of message
-
-    // Still initialize sensors so core functions work offline
+    delay(STARTUP_MESSAGE_DELAY_MS);
     sensorManager.init();
   }
 
-  // Initialize touch controller
   if (touchDetector.begin()) {
     LOG_INFO(F("Touch controller initialized successfully"));
   } else {
     LOG_ERROR(F("Failed to initialize touch controller"));
   }
 
-  gfx.fillScreen(0x0000);  // Clear for main UI
+  gfx.fillScreen(0x0000);
 }
 
 void loop() {
-  // Phase 6: Maintain WiFi in background
   wifi.maintain();
+  timeClient.update();
 
-  timeClient.update();  // Safe even if not connected
+  // Sensor & UI updates ONLY on MAIN
+  if (currentState == MAIN) {
+    static unsigned long lastSensorRead = 0;
+    if (millis() - lastSensorRead >= SENSOR_READ_INTERVAL_MS) {
+      lastSensorRead = millis();
 
-  static unsigned long lastSensorRead = 0;
-  if (millis() - lastSensorRead >= SENSOR_READ_INTERVAL_MS) {
-    lastSensorRead = millis();
+      sensorManager.update();
 
-    bool newReading = sensorManager.update();
+      const SaunaTemperatures& temps = sensorManager.getTemperatures();
 
-    const SaunaTemperatures& temps = sensorManager.getTemperatures();
+      float temp1C = temps.sauna;
+      float temp1F = (temp1C != TEMP_DISCONNECTED_C) ? (temp1C * 9.0/5.0 + 32.0) : TEMP_DISCONNECTED_F;
+      float temp2C = temps.heater;
+      float temp2F = (temp2C != TEMP_DISCONNECTED_C) ? (temp2C * 9.0/5.0 + 32.0) : TEMP_DISCONNECTED_F;
 
-    // Convert C→F if needed (assuming uiSetTemp expects both)
-    float temp1C = temps.sauna;
-    float temp1F = (temp1C != TEMP_DISCONNECTED_C) ? (temp1C * 9.0/5.0 + 32.0) : TEMP_DISCONNECTED_F;
-    float temp2C = temps.heater;
-    float temp2F = (temp2C != TEMP_DISCONNECTED_C) ? (temp2C * 9.0/5.0 + 32.0) : TEMP_DISCONNECTED_F;
+      uiSetTemp1(temp1C, temp1F);
+      uiSetTemp2(temp2C, temp2F);
+      uiSetWifiInfo(WiFi.SSID(), WiFi.localIP().toString(), getMacString());
+      uiSetTime(getFormattedDateTime());
 
-    uiSetTemp1(temp1C, temp1F);
-    uiSetTemp2(temp2C, temp2F);
-
-    uiSetWifiInfo(WiFi.SSID(), WiFi.localIP().toString(), getMacString());
-    uiSetTime(getFormattedDateTime());
-
-    // Optional: Reflect WiFi state or errors in UI later
-
-    uiUpdate();
+      uiUpdate();
+      drawMenuIcon();
+    }
   }
 
-    // Touch polling with corrected mapping + visual feedback dot
+  // Touch polling
   static unsigned long lastTouchCheck = 0;
   static unsigned long lastDotDrawn = 0;
   static bool dotActive = false;
@@ -121,51 +139,138 @@ void loop() {
 
     uint8_t contacts;
     GDTpoint_t points[5];
-
     contacts = touchDetector.getTouchPoints(points);
 
     if (contacts > 0) {
       uint16_t raw_x = points[0].x;
       uint16_t raw_y = points[0].y;
 
-      // Corrected mapping for landscape (setRotation(1) typical):
-      // - Swap axes: raw portrait y → screen x (wide 0-799)
-      // - Flip y: 479 - raw_x → screen y (top 0 to bottom 479)
       uint16_t mapped_x = raw_y;
       uint16_t mapped_y = 479 - raw_x;
 
-      // Log with more context
-      Serial.print(F("[INFO] Touch detected: "));
-      Serial.print(contacts);
-      Serial.println(F(" contacts"));
-      Serial.print(F("  Raw (portrait): x="));
-      Serial.print(raw_x);
-      Serial.print(F(", y="));
-      Serial.println(raw_y);
-      Serial.print(F("  Mapped (landscape): x="));
-      Serial.print(mapped_x);
-      Serial.print(F(", y="));
-      Serial.println(mapped_y);
-
-      // Draw red feedback dot at mapped position
-      gfx.fillCircle(mapped_x, mapped_y, 12, gfx.color565(255, 0, 0));  // Red, r=12
+      gfx.fillCircle(mapped_x, mapped_y, 8, gfx.color565(255, 100, 0));
       dot_x = mapped_x;
       dot_y = mapped_y;
       dotActive = true;
       lastDotDrawn = millis();
+
+      if (currentState == MAIN) {
+        if (mapped_x > 700 && mapped_y < 80) {
+          currentState = MENU;
+          stateChanged = true;
+          Serial.println(F("[INFO] Menu icon → MENU"));
+        }
+      } else if (currentState == MENU) {
+        if (mapped_y > 400 && mapped_x > 200 && mapped_x < 600) {
+          currentState = MAIN;
+          stateChanged = true;
+          Serial.println(F("[INFO] Back → MAIN"));
+        } else if (mapped_x < 400 && mapped_y > 100 && mapped_y < 250) {
+          currentState = NETWORK_INFO;
+          stateChanged = true;
+          Serial.println(F("[INFO] Network Info selected"));
+        } else if (mapped_x > 400 && mapped_y > 100 && mapped_y < 250) {
+          currentState = SENSOR_INFO;
+          stateChanged = true;
+          Serial.println(F("[INFO] Sensor Data selected"));
+        }
+      } else if (currentState == NETWORK_INFO || currentState == SENSOR_INFO) {
+        if (mapped_y > 400 && mapped_x > 200 && mapped_x < 600) {
+          currentState = MENU;
+          stateChanged = true;
+          Serial.println(F("[INFO] Back to MENU"));
+        }
+      }
     }
   }
 
-  // Erase dot after 500 ms (slightly larger black circle to cover fully)
   if (dotActive && millis() - lastDotDrawn >= 500) {
-    gfx.fillCircle(dot_x, dot_y, 14, 0x0000);
+    gfx.fillCircle(dot_x, dot_y, 10, 0x0000);
     dotActive = false;
   }
 
-  // Future: heater control, touch actions, safety, etc.
+  // Redraw on state change
+  if (stateChanged) {
+    gfx.fillScreen(0x0000);  // Always start with black background
+
+    if (currentState == MAIN) {
+      uiUpdate();
+      drawMenuIcon();
+      Serial.println(F("[INFO] MAIN redrawn + icon"));
+    }
+    else if (currentState == MENU) {
+      gfx.setTextColor(0xFFFF);
+      gfx.setTextSize(3);
+      gfx.setCursor(280, 40);
+      gfx.print("MENU");
+
+      gfx.fillRoundRect(80, 100, 300, 120, 20, gfx.color565(0, 120, 255));
+      gfx.setCursor(120, 145);
+      gfx.setTextColor(0xFFFF);
+      gfx.print("Network Info");
+
+      gfx.fillRoundRect(420, 100, 300, 120, 20, gfx.color565(0, 180, 0));
+      gfx.setCursor(460, 145);
+      gfx.print("Sensor Data");
+
+      gfx.fillRoundRect(200, 400, 400, 60, 15, gfx.color565(200, 0, 0));
+      gfx.setCursor(320, 420);
+      gfx.setTextColor(0xFFFF);
+      gfx.print("Back");
+
+      Serial.println(F("[INFO] MENU redrawn"));
+    }
+    else if (currentState == NETWORK_INFO) {
+      drawInfoHeader("Network Information");
+
+      gfx.setTextColor(0xFFFF);           // White data text (or match your main UI)
+      gfx.setTextSize(2);                 // Match typical main UI size for info
+      int y = 120;                        // Start below header
+
+      gfx.setCursor(80, y); y += 40;
+      gfx.print("SSID: "); gfx.print(WiFi.SSID());
+
+      gfx.setCursor(80, y); y += 40;
+      gfx.print("IP: "); gfx.print(WiFi.localIP());
+
+      gfx.setCursor(80, y); y += 40;
+      gfx.print("MAC: "); gfx.print(getMacString());
+
+      gfx.setCursor(80, y); y += 40;
+      gfx.print("Status: ");
+      gfx.setTextColor(wifi.isConnected() ? COLOR_TURQUOISE : gfx.color565(255, 100, 0));
+      gfx.print(wifi.isConnected() ? "Connected" : "Disconnected");
+
+      Serial.println(F("[INFO] NETWORK_INFO redrawn - black + turquoise header"));
+    }
+    else if (currentState == SENSOR_INFO) {
+      drawInfoHeader("Sensor Data");
+
+      const SaunaTemperatures& temps = sensorManager.getTemperatures();
+
+      gfx.setTextColor(0xFFFF);
+      gfx.setTextSize(3);                 // Larger for emphasis, or match main size
+      int y = 120;                        // Higher position after header
+
+      gfx.setCursor(80, y); y += 60;
+      gfx.print("Sauna: ");
+      gfx.setTextColor(COLOR_TURQUOISE);
+      gfx.print(temps.sauna, 1); gfx.print(" C");
+
+      gfx.setTextColor(0xFFFF);
+      gfx.setCursor(80, y); y += 60;
+      gfx.print("Heater: ");
+      gfx.setTextColor(COLOR_TURQUOISE);
+      gfx.print(temps.heater, 1); gfx.print(" C");
+
+      Serial.println(F("[INFO] SENSOR_INFO redrawn - black + turquoise header"));
+    }
+
+    stateChanged = false;
+  }
 }
 
-// Helpers (unchanged)
+// Helpers unchanged
 String getMacString() {
   byte mac[6];
   WiFi.macAddress(mac);
@@ -176,17 +281,13 @@ String getMacString() {
 }
 
 String getFormattedDateTime() {
-  if (!timeClient.isTimeSet()) {
-    return "Time not synced";
-  }
+  if (!timeClient.isTimeSet()) return "Time not synced";
 
   unsigned long epoch = timeClient.getEpochTime();
-
   int year, month, day, hour, minute, second;
   epochToDateTime(epoch, year, month, day, hour, minute, second);
 
   char buf[20];
   snprintf(buf, sizeof(buf), TIME_FORMAT_PATTERN, year, month, day, hour, minute, second);
-
   return String(buf);
 }
