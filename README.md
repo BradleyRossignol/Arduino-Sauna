@@ -14,8 +14,8 @@ Sauna controller for Arduino Giga R1 WiFi + Giga Display Shield. Features temper
 - Build/upload with PlatformIO: `pio run -t upload`
 
 ## Current Version
-1.032 – Cleanup and tweaks.
+**1.5-dev** – Phase 1 cleanup complete (Debug.h standardization, header hygiene, formatting, dead-code removal). Ready for new features.
 
 ## Roadmap
-- Add PID heater control
+- Phase 2: Increased functionality (heater control, improved menus, etc.)
 - Unit tests

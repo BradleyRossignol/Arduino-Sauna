@@ -1,9 +1,9 @@
 /*
  * src/main.ino - Main entry point for Giga R1 Sauna Controller + Giga Display
  *
- * Phase 1 cleanup for v1.5: organized includes, migrated to Debug.h logging,
- * removed duplicate COLOR_TURQUOISE, fixed F() + String concatenation.
- * No functional or behavioral changes.
+ * Phase 2 Step 4: Fixed "WiFi Failed" showing on successful connect
+ * (use return value of wifi.begin() instead of immediate isConnected() check)
+ * All previous menu + Sensor Data features preserved.
  */
 
 #include <Arduino.h>
@@ -34,26 +34,72 @@ enum UiState { MAIN, MENU, NETWORK_INFO, SENSOR_INFO };
 static UiState currentState = MAIN;
 static bool stateChanged = true;
 
-// ── Persistent menu icon (top-right) ───────────────────────────────────────
-void drawMenuIcon() {
-  gfx.fillRect(730, 20, 50, 8, 0xFFFF);
-  gfx.fillRect(730, 40, 50, 8, 0xFFFF);
-  gfx.fillRect(730, 60, 50, 8, 0xFFFF);
+// ── Hamburger Icon (turquoise, on EVERY screen) ────────────────────────────
+void drawHamburgerIcon() {
+  gfx.fillRect(730, 20, 50, 8, COLOR_TURQUOISE);
+  gfx.fillRect(730, 40, 50, 8, COLOR_TURQUOISE);
+  gfx.fillRect(730, 60, 50, 8, COLOR_TURQUOISE);
 }
 
 // ── Common header for info screens (turquoise) ─────────────────────────────
 void drawInfoHeader(const char* title) {
   gfx.setTextColor(COLOR_TURQUOISE);
-  gfx.setTextSize(3);
+  gfx.setTextSize(UI_TITLE_SIZE);
   gfx.setCursor(120, 40);
   gfx.print(title);
+}
 
-  // Back button
-  gfx.fillRoundRect(200, 400, 400, 60, 15, COLOR_TURQUOISE);
-  gfx.setTextColor(0x0000);
-  gfx.setTextSize(3);
-  gfx.setCursor(320, 420);
-  gfx.print("Back");
+// ── Ported from UI.cpp: full main-page temperature functionality ───────────
+static uint16_t getTempColor(float tempF) {
+  if (tempF < TEMP_THRESHOLD_VERY_COLD) return COLOR_VERY_COLD;
+  else if (tempF < TEMP_THRESHOLD_COLD) return COLOR_COLD;
+  else if (tempF < TEMP_THRESHOLD_WARM) return COLOR_WARM;
+  else if (tempF < TEMP_THRESHOLD_HOT)  return COLOR_HOT;
+  else                                  return COLOR_VERY_HOT;
+}
+
+static void drawSensorOnInfo(const char* label, float tempC, float tempF, int yPos) {
+  gfx.setTextSize(UI_NORMAL_SIZE);
+  gfx.setTextColor(COLOR_LABEL);
+  gfx.setCursor(80, yPos);
+  gfx.print(label);
+
+  if (tempC == TEMP_DISCONNECTED_C) {
+    gfx.setTextColor(COLOR_WARNING);
+    gfx.setCursor(420, yPos);
+    gfx.print("Disconnected");
+    return;
+  }
+
+  uint16_t col = getTempColor(tempF);
+  gfx.setTextColor(col);
+
+  char buf[10];
+  snprintf(buf, sizeof(buf), "%.1f", tempC);
+  gfx.setCursor(420, yPos);
+  gfx.print(buf);
+
+  int16_t tbx, tby;
+  uint16_t tbw, tbh;
+  gfx.getTextBounds(buf, 0, 0, &tbx, &tby, &tbw, &tbh);
+  int degCX = 420 + tbw + 8;
+  int degY  = yPos + 4;
+  gfx.fillCircle(degCX + 6, degY - 6, 6, col);
+  gfx.fillCircle(degCX + 6, degY - 6, 4, 0x0000);
+  gfx.setCursor(degCX + 16, yPos);
+  gfx.print("C");
+
+  snprintf(buf, sizeof(buf), "%.1f", tempF);
+  int fStartX = degCX + 16 + 40;
+  gfx.setCursor(fStartX, yPos);
+  gfx.print(buf);
+
+  gfx.getTextBounds(buf, 0, 0, &tbx, &tby, &tbw, &tbh);
+  int degFX = fStartX + tbw + 8;
+  gfx.fillCircle(degFX + 6, degY - 6, 6, col);
+  gfx.fillCircle(degFX + 6, degY - 6, 4, 0x0000);
+  gfx.setCursor(degFX + 16, yPos);
+  gfx.print("F");
 }
 
 // ── Helper prototypes ──────────────────────────────────────────────────────
@@ -68,11 +114,12 @@ void setup() {
   LOG_INFO(String(F("Build: ")) + String(__DATE__) + " " + String(__TIME__));
   LOG_INFO(String(F("Debug level: ")) + String(DEBUG_LEVEL));
 
-  wifi.begin();
+  // PHASE 2 Step 4: Use return value of begin() to avoid race condition
+  bool wifiSuccess = wifi.begin();
 
   gfx.fillScreen(0x0000);
 
-  if (wifi.isConnected()) {
+  if (wifiSuccess) {
     gfx.setTextSize(STARTUP_TEXT_SIZE);
     gfx.setCursor(STARTUP_CURSOR_X, SYNC_TIME_Y);
     gfx.print("Syncing time...");
@@ -106,13 +153,14 @@ void loop() {
   wifi.maintain();
   timeClient.update();
 
+  // ── ALWAYS update sensors (required for live Sensor Info screen) ──────────
+  sensorManager.update();
+
   // ── Sensor & UI updates (MAIN screen only) ───────────────────────────────
   if (currentState == MAIN) {
     static unsigned long lastSensorRead = 0;
     if (millis() - lastSensorRead >= SENSOR_READ_INTERVAL_MS) {
       lastSensorRead = millis();
-
-      sensorManager.update();
 
       const SaunaTemperatures& temps = sensorManager.getTemperatures();
 
@@ -127,8 +175,26 @@ void loop() {
       uiSetTime(getFormattedDateTime());
 
       uiUpdate();
-      drawMenuIcon();
+      drawHamburgerIcon();
     }
+  }
+
+  // ── Live refresh for SENSOR_INFO screen ──────────────────────────────────
+  static unsigned long lastSensorInfoRefresh = 0;
+  if (currentState == SENSOR_INFO && millis() - lastSensorInfoRefresh >= UI_REFRESH_MS) {
+    lastSensorInfoRefresh = millis();
+
+    gfx.fillRect(0, 100, SCREEN_WIDTH, 280, 0x0000);
+
+    const SaunaTemperatures& temps = sensorManager.getTemperatures();
+
+    drawSensorOnInfo("Temp Sensor #1:", temps.sauna,
+                     (temps.sauna != TEMP_DISCONNECTED_C) ? (temps.sauna * 9.0/5.0 + 32.0) : TEMP_DISCONNECTED_F, 130);
+
+    drawSensorOnInfo("Temp Sensor #2:", temps.heater,
+                     (temps.heater != TEMP_DISCONNECTED_C) ? (temps.heater * 9.0/5.0 + 32.0) : TEMP_DISCONNECTED_F, 200);
+
+    LOG_VERBOSE(F("SENSOR_INFO live refresh"));
   }
 
   // ── Touch handling with landscape coordinate mapping ─────────────────────
@@ -158,22 +224,23 @@ void loop() {
       dotActive = true;
       lastDotDrawn = millis();
 
-      if (currentState == MAIN) {
-        if (mapped_x > 700 && mapped_y < 80) {
-          currentState = MENU;
-          stateChanged = true;
-          LOG_INFO(F("Menu icon → MENU"));
-        }
-      } else if (currentState == MENU) {
-        if (mapped_y > 400 && mapped_x > 200 && mapped_x < 600) {
+      if (mapped_x > 700 && mapped_y < 90) {
+        if (currentState == MENU) {
           currentState = MAIN;
           stateChanged = true;
-          LOG_INFO(F("Back → MAIN"));
-        } else if (mapped_x < 400 && mapped_y > 100 && mapped_y < 250) {
+          LOG_INFO(F("Hamburger → MAIN"));
+        } else {
+          currentState = MENU;
+          stateChanged = true;
+          LOG_INFO(F("Hamburger opened MENU"));
+        }
+      }
+      else if (currentState == MENU) {
+        if (mapped_x < 400 && mapped_y > 140 && mapped_y < 240) {
           currentState = NETWORK_INFO;
           stateChanged = true;
           LOG_INFO(F("Network Info selected"));
-        } else if (mapped_x > 400 && mapped_y > 100 && mapped_y < 250) {
+        } else if (mapped_x > 400 && mapped_y > 140 && mapped_y < 240) {
           currentState = SENSOR_INFO;
           stateChanged = true;
           LOG_INFO(F("Sensor Data selected"));
@@ -199,75 +266,77 @@ void loop() {
 
     if (currentState == MAIN) {
       uiUpdate();
-      drawMenuIcon();
-      LOG_INFO(F("MAIN redrawn + icon"));
+      drawHamburgerIcon();
+      LOG_INFO(F("MAIN redrawn + hamburger"));
     }
     else if (currentState == MENU) {
-      gfx.setTextColor(0xFFFF);
-      gfx.setTextSize(3);
+      gfx.setTextColor(COLOR_TURQUOISE);
+      gfx.setTextSize(UI_TITLE_SIZE);
       gfx.setCursor(280, 40);
       gfx.print("MENU");
 
-      gfx.fillRoundRect(80, 100, 300, 120, 20, gfx.color565(0, 120, 255));
-      gfx.setCursor(120, 145);
+      gfx.fillRoundRect(80, 140, 300, 100, 20, gfx.color565(0, 120, 255));
       gfx.setTextColor(0xFFFF);
+      gfx.setTextSize(UI_NORMAL_SIZE);
+      gfx.setCursor(120, 180);
       gfx.print("Network Info");
 
-      gfx.fillRoundRect(420, 100, 300, 120, 20, gfx.color565(0, 180, 0));
-      gfx.setCursor(460, 145);
+      gfx.fillRoundRect(420, 140, 300, 100, 20, gfx.color565(0, 180, 0));
+      gfx.setCursor(470, 180);
       gfx.print("Sensor Data");
 
-      gfx.fillRoundRect(200, 400, 400, 60, 15, gfx.color565(200, 0, 0));
-      gfx.setCursor(320, 420);
-      gfx.setTextColor(0xFFFF);
-      gfx.print("Back");
-
-      LOG_INFO(F("MENU redrawn"));
+      drawHamburgerIcon();
+      LOG_INFO(F("MENU redrawn - turquoise title"));
     }
     else if (currentState == NETWORK_INFO) {
       drawInfoHeader("Network Information");
+      drawHamburgerIcon();
 
       gfx.setTextColor(0xFFFF);
-      gfx.setTextSize(2);
-      int y = 120;
+      gfx.setTextSize(UI_NORMAL_SIZE);
+      int y = 130;
 
-      gfx.setCursor(80, y); y += 40;
+      gfx.setCursor(80, y); y += 45;
       gfx.print("SSID: "); gfx.print(WiFi.SSID());
 
-      gfx.setCursor(80, y); y += 40;
+      gfx.setCursor(80, y); y += 45;
       gfx.print("IP: "); gfx.print(WiFi.localIP());
 
-      gfx.setCursor(80, y); y += 40;
+      gfx.setCursor(80, y); y += 45;
       gfx.print("MAC: "); gfx.print(getMacString());
 
-      gfx.setCursor(80, y); y += 40;
+      gfx.setCursor(80, y); y += 45;
       gfx.print("Status: ");
       gfx.setTextColor(wifi.isConnected() ? COLOR_TURQUOISE : gfx.color565(255, 100, 0));
       gfx.print(wifi.isConnected() ? "Connected" : "Disconnected");
 
-      LOG_INFO(F("NETWORK_INFO redrawn - black + turquoise header"));
+      gfx.fillRoundRect(200, 400, 400, 60, 15, COLOR_TURQUOISE);
+      gfx.setTextColor(0x0000);
+      gfx.setTextSize(UI_NORMAL_SIZE);
+      gfx.setCursor(320, 420);
+      gfx.print("Back");
+
+      LOG_INFO(F("NETWORK_INFO redrawn"));
     }
     else if (currentState == SENSOR_INFO) {
       drawInfoHeader("Sensor Data");
+      drawHamburgerIcon();
 
       const SaunaTemperatures& temps = sensorManager.getTemperatures();
 
-      gfx.setTextColor(0xFFFF);
-      gfx.setTextSize(3);
-      int y = 120;
+      drawSensorOnInfo("Temp Sensor #1:", temps.sauna,
+                       (temps.sauna != TEMP_DISCONNECTED_C) ? (temps.sauna * 9.0/5.0 + 32.0) : TEMP_DISCONNECTED_F, 130);
 
-      gfx.setCursor(80, y); y += 60;
-      gfx.print("Sauna: ");
-      gfx.setTextColor(COLOR_TURQUOISE);
-      gfx.print(temps.sauna, 1); gfx.print(" C");
+      drawSensorOnInfo("Temp Sensor #2:", temps.heater,
+                       (temps.heater != TEMP_DISCONNECTED_C) ? (temps.heater * 9.0/5.0 + 32.0) : TEMP_DISCONNECTED_F, 200);
 
-      gfx.setTextColor(0xFFFF);
-      gfx.setCursor(80, y); y += 60;
-      gfx.print("Heater: ");
-      gfx.setTextColor(COLOR_TURQUOISE);
-      gfx.print(temps.heater, 1); gfx.print(" C");
+      gfx.fillRoundRect(200, 400, 400, 60, 15, COLOR_TURQUOISE);
+      gfx.setTextColor(0x0000);
+      gfx.setTextSize(UI_NORMAL_SIZE);
+      gfx.setCursor(320, 420);
+      gfx.print("Back");
 
-      LOG_INFO(F("SENSOR_INFO redrawn - black + turquoise header"));
+      LOG_INFO(F("SENSOR_INFO initial draw"));
     }
 
     stateChanged = false;
