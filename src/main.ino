@@ -1,19 +1,26 @@
 /*
- * main.ino - Entry point for Giga R1 Sauna Controller with Giga Display
+ * src/main.ino - Main entry point for Giga R1 Sauna Controller + Giga Display
+ *
+ * Phase 1 cleanup for v1.5: organized includes, migrated to Debug.h logging,
+ * removed duplicate COLOR_TURQUOISE, fixed F() + String concatenation.
+ * No functional or behavioral changes.
  */
 
+#include <Arduino.h>
 #include <Arduino_GigaDisplay_GFX.h>
-#include "WiFiManager.h"
+#include <Arduino_GigaDisplayTouch.h>
 #include <WiFi.h>
 #include <WiFiUdp.h>
 #include <NTPClient.h>
-#include "UI.h"
-#include "Config.h"
-#include "SensorManager.h"
-#include "TimeUtils.h"
-#include "Debug.h"
-#include "Arduino_GigaDisplayTouch.h"
 
+#include "Config.h"
+#include "Debug.h"
+#include "WiFiManager.h"
+#include "SensorManager.h"
+#include "UI.h"
+#include "TimeUtils.h"
+
+// ── Global Objects ─────────────────────────────────────────────────────────
 GigaDisplay_GFX gfx;
 WiFiManager wifi;
 WiFiUDP ntpUDP;
@@ -22,47 +29,44 @@ NTPClient timeClient(ntpUDP, NTP_SERVER, TimeConfig::OFFSET_SEC, NTP_UPDATE_INTE
 SensorManager sensorManager;
 Arduino_GigaDisplayTouch touchDetector;
 
-// UI states
+// ── UI State Machine ───────────────────────────────────────────────────────
 enum UiState { MAIN, MENU, NETWORK_INFO, SENSOR_INFO };
 static UiState currentState = MAIN;
 static bool stateChanged = true;
 
-// Persistent menu icon
+// ── Persistent menu icon (top-right) ───────────────────────────────────────
 void drawMenuIcon() {
   gfx.fillRect(730, 20, 50, 8, 0xFFFF);
   gfx.fillRect(730, 40, 50, 8, 0xFFFF);
   gfx.fillRect(730, 60, 50, 8, 0xFFFF);
 }
 
-// Turquoise color constant
-#define COLOR_TURQUOISE gfx.color565(0, 255, 255)
-
-// Common header + back button in turquoise
+// ── Common header for info screens (turquoise) ─────────────────────────────
 void drawInfoHeader(const char* title) {
   gfx.setTextColor(COLOR_TURQUOISE);
-  gfx.setTextSize(3);                 // Adjust size to match your preference
-  gfx.setCursor(120, 40);             // Centered-ish at top
+  gfx.setTextSize(3);
+  gfx.setCursor(120, 40);
   gfx.print(title);
 
-  // Back button in turquoise
+  // Back button
   gfx.fillRoundRect(200, 400, 400, 60, 15, COLOR_TURQUOISE);
-  gfx.setTextColor(0x0000);           // Black text on turquoise for contrast
+  gfx.setTextColor(0x0000);
   gfx.setTextSize(3);
   gfx.setCursor(320, 420);
   gfx.print("Back");
 }
 
+// ── Helper prototypes ──────────────────────────────────────────────────────
+String getMacString();
+String getFormattedDateTime();
+
 void setup() {
   uiInit();
   DEBUG_INIT(115200);
 
-  LOG_INFO(F("Sauna Controller starting"));
-  LOG_INFO(F("Build date/time: "));
-  DEBUG_PRINT(__DATE__);
-  DEBUG_PRINT(F(" "));
-  DEBUG_PRINTLN(__TIME__);
-  LOG_INFO(F("Debug level: "));
-  DEBUG_PRINTLN(DEBUG_LEVEL);
+  LOG_INFO(String(F("Sauna Controller starting")));
+  LOG_INFO(String(F("Build: ")) + String(__DATE__) + " " + String(__TIME__));
+  LOG_INFO(String(F("Debug level: ")) + String(DEBUG_LEVEL));
 
   wifi.begin();
 
@@ -102,7 +106,7 @@ void loop() {
   wifi.maintain();
   timeClient.update();
 
-  // Sensor & UI updates ONLY on MAIN
+  // ── Sensor & UI updates (MAIN screen only) ───────────────────────────────
   if (currentState == MAIN) {
     static unsigned long lastSensorRead = 0;
     if (millis() - lastSensorRead >= SENSOR_READ_INTERVAL_MS) {
@@ -127,7 +131,7 @@ void loop() {
     }
   }
 
-  // Touch polling
+  // ── Touch handling with landscape coordinate mapping ─────────────────────
   static unsigned long lastTouchCheck = 0;
   static unsigned long lastDotDrawn = 0;
   static bool dotActive = false;
@@ -158,27 +162,27 @@ void loop() {
         if (mapped_x > 700 && mapped_y < 80) {
           currentState = MENU;
           stateChanged = true;
-          Serial.println(F("[INFO] Menu icon → MENU"));
+          LOG_INFO(F("Menu icon → MENU"));
         }
       } else if (currentState == MENU) {
         if (mapped_y > 400 && mapped_x > 200 && mapped_x < 600) {
           currentState = MAIN;
           stateChanged = true;
-          Serial.println(F("[INFO] Back → MAIN"));
+          LOG_INFO(F("Back → MAIN"));
         } else if (mapped_x < 400 && mapped_y > 100 && mapped_y < 250) {
           currentState = NETWORK_INFO;
           stateChanged = true;
-          Serial.println(F("[INFO] Network Info selected"));
+          LOG_INFO(F("Network Info selected"));
         } else if (mapped_x > 400 && mapped_y > 100 && mapped_y < 250) {
           currentState = SENSOR_INFO;
           stateChanged = true;
-          Serial.println(F("[INFO] Sensor Data selected"));
+          LOG_INFO(F("Sensor Data selected"));
         }
       } else if (currentState == NETWORK_INFO || currentState == SENSOR_INFO) {
         if (mapped_y > 400 && mapped_x > 200 && mapped_x < 600) {
           currentState = MENU;
           stateChanged = true;
-          Serial.println(F("[INFO] Back to MENU"));
+          LOG_INFO(F("Back to MENU"));
         }
       }
     }
@@ -189,14 +193,14 @@ void loop() {
     dotActive = false;
   }
 
-  // Redraw on state change
+  // ── Redraw on state change ───────────────────────────────────────────────
   if (stateChanged) {
-    gfx.fillScreen(0x0000);  // Always start with black background
+    gfx.fillScreen(0x0000);
 
     if (currentState == MAIN) {
       uiUpdate();
       drawMenuIcon();
-      Serial.println(F("[INFO] MAIN redrawn + icon"));
+      LOG_INFO(F("MAIN redrawn + icon"));
     }
     else if (currentState == MENU) {
       gfx.setTextColor(0xFFFF);
@@ -218,14 +222,14 @@ void loop() {
       gfx.setTextColor(0xFFFF);
       gfx.print("Back");
 
-      Serial.println(F("[INFO] MENU redrawn"));
+      LOG_INFO(F("MENU redrawn"));
     }
     else if (currentState == NETWORK_INFO) {
       drawInfoHeader("Network Information");
 
-      gfx.setTextColor(0xFFFF);           // White data text (or match your main UI)
-      gfx.setTextSize(2);                 // Match typical main UI size for info
-      int y = 120;                        // Start below header
+      gfx.setTextColor(0xFFFF);
+      gfx.setTextSize(2);
+      int y = 120;
 
       gfx.setCursor(80, y); y += 40;
       gfx.print("SSID: "); gfx.print(WiFi.SSID());
@@ -241,7 +245,7 @@ void loop() {
       gfx.setTextColor(wifi.isConnected() ? COLOR_TURQUOISE : gfx.color565(255, 100, 0));
       gfx.print(wifi.isConnected() ? "Connected" : "Disconnected");
 
-      Serial.println(F("[INFO] NETWORK_INFO redrawn - black + turquoise header"));
+      LOG_INFO(F("NETWORK_INFO redrawn - black + turquoise header"));
     }
     else if (currentState == SENSOR_INFO) {
       drawInfoHeader("Sensor Data");
@@ -249,8 +253,8 @@ void loop() {
       const SaunaTemperatures& temps = sensorManager.getTemperatures();
 
       gfx.setTextColor(0xFFFF);
-      gfx.setTextSize(3);                 // Larger for emphasis, or match main size
-      int y = 120;                        // Higher position after header
+      gfx.setTextSize(3);
+      int y = 120;
 
       gfx.setCursor(80, y); y += 60;
       gfx.print("Sauna: ");
@@ -263,14 +267,14 @@ void loop() {
       gfx.setTextColor(COLOR_TURQUOISE);
       gfx.print(temps.heater, 1); gfx.print(" C");
 
-      Serial.println(F("[INFO] SENSOR_INFO redrawn - black + turquoise header"));
+      LOG_INFO(F("SENSOR_INFO redrawn - black + turquoise header"));
     }
 
     stateChanged = false;
   }
 }
 
-// Helpers unchanged
+// ── Helpers ────────────────────────────────────────────────────────────────
 String getMacString() {
   byte mac[6];
   WiFi.macAddress(mac);

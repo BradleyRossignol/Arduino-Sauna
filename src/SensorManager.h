@@ -1,5 +1,12 @@
+#pragma once  // ADDED: Modern include guard (complements #ifndef)
+
 #ifndef SENSOR_MANAGER_H
 #define SENSOR_MANAGER_H
+
+// ── File Overview ──────────────────────────────────────────────────────────
+// Manages DS18B20 temperature sensors via OneWire/DallasTemperature.
+// Supports async reading with blocking fallback on repeated failures.
+// Provides validated temps and averages.  // ADDED: Brief doc
 
 #include <Arduino.h>
 #include <OneWire.h>

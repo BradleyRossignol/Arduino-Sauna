@@ -1,8 +1,7 @@
 #include "SensorManager.h"
+#include "Debug.h"  // ADDED: For leveled logging macros
 
-// ── Toggle detailed debug output ────────────────────────────────────────────
-// Set to 1 for verbose logging (every sensor value on success), 0 for minimal
-#define SENSOR_DEBUG 1
+// ── Removed: SENSOR_DEBUG define (integrated into LOG_VERBOSE) ──────────────
 
 SensorManager::SensorManager() 
     : oneWire(ONE_WIRE_BUS_PIN),
@@ -17,7 +16,7 @@ void SensorManager::init() {
     for (uint8_t i = 0; i < sensorCount; i++) {
         if (!sensors.getAddress(addresses[i], i)) {
             errorFlag = true;
-            Serial.println("Failed to get address for sensor " + String(i));
+            LOG_ERROR("Failed to get address for sensor " + String(i));  // CHANGED: To LOG_ERROR
         }
     }
 
@@ -25,15 +24,15 @@ void SensorManager::init() {
     sensors.setWaitForConversion(false);           // Async mode
     conversionDelay = sensors.millisToWaitForConversion(12);
 
-    // Serial.begin(115200);  // Assume called in main.ino
-    Serial.println("Sensor init | Count: " + String(sensorCount) + " | Async delay: " + String(conversionDelay) + " ms");
+    // Serial.begin(115200);  // Assume called in main.ino (via DEBUG_INIT if needed)
+    LOG_INFO("Sensor init | Count: " + String(sensorCount) + " | Async delay: " + String(conversionDelay) + " ms");  // CHANGED: To LOG_INFO
 }
 
 bool SensorManager::update() {
     unsigned long now = millis();
 
     if (useBlockingFallbackThisCycle) {
-        Serial.println("[" + String(now) + "] Blocking fallback cycle");
+        LOG_WARN("[" + String(now) + "] Blocking fallback cycle");  // CHANGED: To LOG_WARN (recovery event)
         sensors.setWaitForConversion(true);
         sensors.requestTemperatures();
         readTemperatures();
@@ -51,7 +50,7 @@ bool SensorManager::update() {
             return false;
         }
 
-        Serial.println("[" + String(now) + "] Requesting temps (async)");
+        LOG_VERBOSE("[" + String(now) + "] Requesting temps (async)");  // CHANGED: To LOG_VERBOSE (detailed timing)
         sensors.requestTemperatures();
         conversionStart = now;
         waitingForConversion = true;
@@ -62,7 +61,7 @@ bool SensorManager::update() {
             return false;
         }
 
-        Serial.print("[" + String(now) + "] Reading after " + String(now - conversionStart) + " ms → ");
+        LOG_VERBOSE("[" + String(now) + "] Reading after " + String(now - conversionStart) + " ms → ");  // CHANGED: To LOG_VERBOSE
 
         readTemperatures();
 
@@ -71,18 +70,14 @@ bool SensorManager::update() {
 
         if (!temps.valid) {
             consecutiveFailures++;
-            Serial.println("Async read failed (" + String(consecutiveFailures) + "/" + String(MAX_CONSECUTIVE_FAILURES) + ")");
+            LOG_WARN("Async read failed (" + String(consecutiveFailures) + "/" + String(MAX_CONSECUTIVE_FAILURES) + ")");  // CHANGED: To LOG_WARN
             if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
                 useBlockingFallbackThisCycle = true;
-                Serial.println("→ Switching to blocking fallback next cycle");
+                LOG_WARN("→ Switching to blocking fallback next cycle");  // CHANGED: To LOG_WARN
             }
         } else {
             consecutiveFailures = 0;
-#if SENSOR_DEBUG
-            Serial.println("OK");
-#else
-            Serial.println("OK (valid)");
-#endif
+            LOG_VERBOSE("OK (valid)");  // CHANGED: To LOG_VERBOSE (unified, was conditional on SENSOR_DEBUG)
         }
 
         return temps.valid;
@@ -97,29 +92,20 @@ void SensorManager::readTemperatures() {
     temps.heater  = (sensorCount >= 2) ? sensors.getTempCByIndex(1) : INVALID_TEMPERATURE_C;
     temps.ambient = (sensorCount >= 3) ? sensors.getTempCByIndex(2) : INVALID_TEMPERATURE_C;
 
-#if SENSOR_DEBUG
+    // ── Unified validation loop (always runs, details via LOG_VERBOSE) ────── // ADDED: Comment
     for (uint8_t i = 0; i < sensorCount; i++) {
         float t = sensors.getTempCByIndex(i);
         if (t == DEVICE_DISCONNECTED_C || t == INVALID_TEMPERATURE_C) {
             errorFlag = true;
             temps.valid = false;
-            Serial.println("  Sensor " + String(i) + " invalid: " + String(t));
+            LOG_VERBOSE("  Sensor " + String(i) + " invalid: " + String(t));  // CHANGED: To LOG_VERBOSE (was under SENSOR_DEBUG)
         } else {
-            Serial.println("  Sensor " + String(i) + ": " + String(t) + " C");
+            LOG_VERBOSE("  Sensor " + String(i) + ": " + String(t) + " C");  // CHANGED: To LOG_VERBOSE (was under SENSOR_DEBUG)
         }
     }
-#else
-    for (uint8_t i = 0; i < sensorCount; i++) {
-        float t = sensors.getTempCByIndex(i);
-        if (t == DEVICE_DISCONNECTED_C || t == INVALID_TEMPERATURE_C) {
-            errorFlag = true;
-            temps.valid = false;
-        }
-    }
-#endif
 
     if (!temps.valid) {
-        Serial.println("Data invalid");
+        LOG_WARN("Data invalid");  // CHANGED: To LOG_WARN
     }
 }
 

@@ -1,5 +1,14 @@
+#pragma once
+
 #ifndef UI_H
 #define UI_H
+
+// ── File Overview ──────────────────────────────────────────────────────────
+// Main user interface layer for the Sauna Controller (Giga Display).
+// Handles gfx init, periodic refresh of the status screen, and live data setters.
+// Draws title, WiFi info, time, dual temperature sensors, and sensor-health indicator.
+// All constants pulled from Config.h. Manual drawing only — no LVGL bleed.
+// ───────────────────────────────────────────────────────────────────────────
 
 #include <Arduino_GigaDisplay_GFX.h>
 
