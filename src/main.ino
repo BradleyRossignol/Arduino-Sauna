@@ -1,5 +1,9 @@
 /*
  * src/main.ino - Main entry point for Giga R1 Sauna Controller + Giga Display
+ *
+ * Phase 2 Step 4: Fixed "WiFi Failed" showing on successful connect
+ * (use return value of wifi.begin() instead of immediate isConnected() check)
+ * All previous menu + Sensor Data features preserved.
  */
 
 #include <Arduino.h>
@@ -116,10 +120,23 @@ void setup() {
   gfx.fillScreen(0x0000);
 
   if (wifiSuccess) {
+    gfx.setTextSize(STARTUP_TEXT_SIZE);
+    gfx.setCursor(STARTUP_CURSOR_X, SYNC_TIME_Y);
+    gfx.print("Syncing time...");
     timeClient.begin();
     timeClient.update();
+
     sensorManager.init();
+
+    gfx.fillScreen(0x0000);
+    gfx.setTextSize(STARTUP_TEXT_SIZE);
+    gfx.setCursor(STARTUP_CURSOR_X, SENSORS_READY_Y);
+    gfx.print("DS18B20 sensors ready");
+    delay(STARTUP_MESSAGE_DELAY_MS);
   } else {
+    gfx.setTextColor(COLOR_WARNING);
+    centerText("WiFi Failed - Retrying...", CENTER_TEXT_X, CENTER_TEXT_Y);
+    delay(STARTUP_MESSAGE_DELAY_MS);
     sensorManager.init();
   }
 

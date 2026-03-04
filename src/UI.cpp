@@ -21,6 +21,7 @@ static String _timeStr  = "Not synced";
 static unsigned long lastRefresh = 0;
 
 // ── Private helpers ────────────────────────────────────────────────────────
+
 static uint16_t getTempColor(float tempF) {
     if (tempF < TEMP_THRESHOLD_VERY_COLD) return COLOR_VERY_COLD;
     else if (tempF < TEMP_THRESHOLD_COLD) return COLOR_COLD;
@@ -50,6 +51,7 @@ static void drawSensor(const char* label, float tempC, float tempF, int yPos) {
     gfx.setCursor(UI_VALUE_X, yPos);
     gfx.print(buf);
 
+    // Degree C symbol
     int16_t tbx, tby;
     uint16_t tbw, tbh;
     gfx.getTextBounds(buf, 0, 0, &tbx, &tby, &tbw, &tbh);
@@ -60,6 +62,7 @@ static void drawSensor(const char* label, float tempC, float tempF, int yPos) {
     gfx.setCursor(degCX + 16, yPos);
     gfx.print("C");
 
+    // Fahrenheit
     snprintf(buf, sizeof(buf), "%.1f", tempF);
     int fStartX = degCX + 16 + 40;
     gfx.setCursor(fStartX, yPos);
@@ -153,6 +156,10 @@ void uiInit() {
     gfx.begin();
     gfx.setRotation(1);
     gfx.fillScreen(0x0000);
+    gfx.setTextColor(COLOR_TURQUOISE);
+    gfx.setTextSize(UI_NORMAL_SIZE);
+    gfx.setCursor(60, 100);
+    gfx.print("Connecting to WiFi...");
 
     LOG_INFO("UI initialized (landscape rotation set)");
 }
