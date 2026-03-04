@@ -23,7 +23,6 @@ constexpr uint8_t ONE_WIRE_BUS_PIN = 2; // DS18B20 data pin
 // Timing & Intervals
 // ────────────────────────────────────────────────
 constexpr unsigned long SENSOR_READ_INTERVAL_MS   = 5000UL;   // Read temps every 5 seconds
-constexpr unsigned long STARTUP_MESSAGE_DELAY_MS  = 1500UL;   // Pause after "sensors ready"
 constexpr unsigned long UI_REFRESH_MS             = 5000UL;   // UI refresh interval
 constexpr unsigned long NTP_UPDATE_INTERVAL_MS    = 60000UL;  // Poll NTP every 60s
 
@@ -46,16 +45,10 @@ constexpr float TEMP_DISCONNECTED_F   = -196.6f;   // -127°C in °F
 constexpr float INVALID_TEMPERATURE_C = -127.0f;   // Alias for consistency
 
 // ────────────────────────────────────────────────
-// Display Layout (Startup Screen)
+// Display Layout
 // ────────────────────────────────────────────────
 constexpr int SCREEN_WIDTH          = 800;
 constexpr int SCREEN_HEIGHT         = 480;
-constexpr int STARTUP_TEXT_SIZE     = 3;
-constexpr int STARTUP_CURSOR_X      = 60;
-constexpr int SYNC_TIME_Y           = 180;
-constexpr int SENSORS_READY_Y       = 220;
-constexpr int CENTER_TEXT_X         = 400;
-constexpr int CENTER_TEXT_Y         = 240;
 
 // ────────────────────────────────────────────────
 // UI Colors
